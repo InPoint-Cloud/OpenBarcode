@@ -18,6 +18,14 @@ namespace InPoint.Cloud.OpenBarcode
         /// <summary>Also try the image rotated by 90, 180 and 270 degrees. Default true.</summary>
         public bool AutoRotate { get; set; } = true;
 
+        /// <summary>
+        /// When the normal passes find nothing in a photo, scan or embedded PDF image, retry with image clean-up:
+        /// lighting and contrast correction, adaptive thresholding, denoising, sharpening, rescaling and
+        /// diagonal orientations for 1D codes. Helps with blurry, noisy, dark, low-contrast or skewed pictures.
+        /// It only costs time on images where nothing is found. Default true.
+        /// </summary>
+        public bool EnhancePoorImages { get; set; } = true;
+
         /// <summary>Find every barcode in an image instead of stopping at the first. Default true.</summary>
         public bool ReadMultiple { get; set; } = true;
 
