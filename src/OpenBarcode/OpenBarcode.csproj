@@ -8,7 +8,9 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <RootNamespace>OpenBarcode</RootNamespace>
 
-    <PackageId>OpenBarcode</PackageId>
+    <PackageId>InPoint.Cloud.OpenBarcode</PackageId>
+    <Authors>InPoint.Cloud</Authors>
+    <Company>InPoint.Cloud</Company>
     <Version>0.1.0</Version>
     <Description>Pure managed .NET barcode reader for images (PNG, JPEG, BMP, GIF, TIFF, ...) and PDF files. No native dependencies.</Description>
     <PackageTags>barcode;qr;qrcode;datamatrix;pdf417;code128;ean;upc;pdf;reader;scanner</PackageTags>

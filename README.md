@@ -12,6 +12,15 @@ foreach (var barcode in reader.ReadFile("invoice.pdf"))
     Console.WriteLine($"page {barcode.PageNumber}: {barcode.Format} {barcode.Text}");
 ```
 
+## Install
+
+```
+dotnet add package InPoint.Cloud.OpenBarcode
+dotnet tool install -g InPoint.Cloud.OpenBarcode.Cli   # command: openbarcode
+```
+
+The namespace is `OpenBarcode`.
+
 ## What it reads
 
 **Symbologies:** QR Code, Data Matrix, PDF417, Aztec, Code 128 (incl. GS1-128), Code 39, Code 93, Codabar,

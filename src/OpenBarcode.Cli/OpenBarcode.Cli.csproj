@@ -10,7 +10,9 @@
     <AssemblyName>OpenBarcode.Cli</AssemblyName>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>openbarcode</ToolCommandName>
-    <PackageId>OpenBarcode.Cli</PackageId>
+    <PackageId>InPoint.Cloud.OpenBarcode.Cli</PackageId>
+    <Authors>InPoint.Cloud</Authors>
+    <Company>InPoint.Cloud</Company>
     <Version>0.1.0</Version>
     <Description>Command-line barcode reader for images and PDF files.</Description>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
