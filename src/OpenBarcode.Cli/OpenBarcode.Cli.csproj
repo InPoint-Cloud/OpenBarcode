@@ -12,12 +12,14 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>openbarcode</ToolCommandName>
     <PackageId>InPoint.Cloud.OpenBarcode.Cli</PackageId>
-    <Authors>InPoint.Cloud</Authors>
-    <Company>InPoint.Cloud</Company>
-    <Version>0.1.0</Version>
-    <Description>Command-line barcode reader for images and PDF files.</Description>
-    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <Description>Command-line barcode reader for images and PDF files (dotnet tool "openbarcode"). Pure managed code.</Description>
+    <PackageTags>barcode;qr;datamatrix;pdf;cli;dotnet-tool</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\OpenBarcode\OpenBarcode.csproj" />

@@ -140,3 +140,9 @@ jbig2enc (`tests/samples`).
 ## License
 
 Apache-2.0. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the libraries it builds on.
+
+## Releasing
+
+Push a tag such as `v0.1.0` (or `v0.2.0-beta.1` for a prerelease). The `Release` workflow builds, tests, packs and
+publishes both packages to nuget.org under the InPoint.Cloud account using Trusted Publishing, then creates a
+GitHub release with the packages attached. The package version comes from the tag.
