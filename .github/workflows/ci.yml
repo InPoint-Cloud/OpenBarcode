@@ -12,8 +12,8 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           # The .slnx solution needs the .NET 10 SDK; the tests run on the .NET 8 runtime.
           dotnet-version: |
@@ -24,7 +24,7 @@ jobs:
       - if: matrix.os == 'ubuntu-latest'
         run: dotnet pack -c Release --no-build -o artifacts
       - if: matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: packages
           path: artifacts/*.nupkg
