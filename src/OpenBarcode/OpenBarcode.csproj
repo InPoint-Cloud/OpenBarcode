@@ -6,7 +6,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <RootNamespace>OpenBarcode</RootNamespace>
+    <RootNamespace>InPoint.Cloud.OpenBarcode</RootNamespace>
+    <AssemblyName>InPoint.Cloud.OpenBarcode</AssemblyName>
 
     <PackageId>InPoint.Cloud.OpenBarcode</PackageId>
     <Authors>InPoint.Cloud</Authors>

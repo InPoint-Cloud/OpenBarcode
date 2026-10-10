@@ -5,7 +5,7 @@ no native libraries, no System.Drawing, no Ghostscript or PDFium. It runs anywhe
 macOS, containers, Azure Functions) and targets .NET Standard 2.0 and .NET 8.
 
 ```csharp
-using OpenBarcode;
+using InPoint.Cloud.OpenBarcode;
 
 var reader = new BarcodeReader();
 foreach (var barcode in reader.ReadFile("invoice.pdf"))
@@ -19,7 +19,7 @@ dotnet add package InPoint.Cloud.OpenBarcode
 dotnet tool install -g InPoint.Cloud.OpenBarcode.Cli   # command: openbarcode
 ```
 
-The namespace is `OpenBarcode`.
+The namespace is `InPoint.Cloud.OpenBarcode`.
 
 ## What it reads
 

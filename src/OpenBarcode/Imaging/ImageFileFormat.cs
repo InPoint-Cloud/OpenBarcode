@@ -1,4 +1,4 @@
-namespace OpenBarcode.Imaging
+namespace InPoint.Cloud.OpenBarcode.Imaging
 {
     /// <summary>File types recognised from their leading bytes.</summary>
     public enum ImageFileFormat

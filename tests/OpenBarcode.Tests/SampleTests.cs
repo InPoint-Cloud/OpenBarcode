@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace OpenBarcode.Tests;
+namespace InPoint.Cloud.OpenBarcode.Tests;
 
 /// <summary>
 /// Files made by third-party tools (reportlab, poppler, ImageMagick, jbig2enc), see tests/samples/README.md.

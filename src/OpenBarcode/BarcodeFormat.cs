@@ -1,6 +1,6 @@
 using System;
 
-namespace OpenBarcode
+namespace InPoint.Cloud.OpenBarcode
 {
     /// <summary>Barcode symbologies the reader can detect. Flags can be combined to restrict a search.</summary>
     [Flags]

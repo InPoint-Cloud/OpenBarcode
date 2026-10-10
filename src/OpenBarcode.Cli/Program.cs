@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
-using OpenBarcode;
+using InPoint.Cloud.OpenBarcode;
 
 const string Usage = """
     Usage: openbarcode [options] <file>...

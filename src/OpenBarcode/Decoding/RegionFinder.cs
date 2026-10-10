@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using OpenBarcode.Imaging;
+using InPoint.Cloud.OpenBarcode.Imaging;
 
-namespace OpenBarcode.Decoding
+namespace InPoint.Cloud.OpenBarcode.Decoding
 {
     internal readonly struct Region
     {

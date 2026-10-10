@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 
-namespace OpenBarcode.Imaging
+namespace InPoint.Cloud.OpenBarcode.Imaging
 {
     /// <summary>Netpbm decoder: P1/P4 (bitmap), P2/P5 (graymap), P3/P6 (pixmap).</summary>
     internal static class PnmDecoder

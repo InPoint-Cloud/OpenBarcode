@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace OpenBarcode
+namespace InPoint.Cloud.OpenBarcode
 {
     /// <summary>Where a barcode was found.</summary>
     public enum BarcodeSource

@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
-using OpenBarcode.Imaging;
+using InPoint.Cloud.OpenBarcode.Imaging;
 using UglyToad.PdfPig.Content;
 using UglyToad.PdfPig.Core;
 using UglyToad.PdfPig.Graphics;
 
-namespace OpenBarcode.Pdf
+namespace InPoint.Cloud.OpenBarcode.Pdf
 {
     /// <summary>
     /// Rasterizes the filled and stroked paths of a PDF page in drawing order. Text and images are not drawn:

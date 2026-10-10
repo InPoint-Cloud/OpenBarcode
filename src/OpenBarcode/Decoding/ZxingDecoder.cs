@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
-using OpenBarcode.Imaging;
+using InPoint.Cloud.OpenBarcode.Imaging;
 using ZXing;
 using ZXing.Common;
 using ZxFormat = ZXing.BarcodeFormat;
 
-namespace OpenBarcode.Decoding
+namespace InPoint.Cloud.OpenBarcode.Decoding
 {
     /// <summary>A barcode found in one bitmap, before it is tagged with where the bitmap came from.</summary>
     internal readonly struct RawHit

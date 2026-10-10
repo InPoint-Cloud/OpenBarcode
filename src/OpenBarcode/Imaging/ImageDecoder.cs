@@ -4,7 +4,7 @@ using System.IO;
 using BitMiracle.LibTiff.Classic;
 using StbImageSharp;
 
-namespace OpenBarcode.Imaging
+namespace InPoint.Cloud.OpenBarcode.Imaging
 {
     /// <summary>Decodes raster image files to grayscale using managed code only.</summary>
     public static class ImageDecoder

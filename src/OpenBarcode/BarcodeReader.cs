@@ -1,13 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using OpenBarcode.Decoding;
-using OpenBarcode.Imaging;
-using OpenBarcode.Pdf;
+using InPoint.Cloud.OpenBarcode.Decoding;
+using InPoint.Cloud.OpenBarcode.Imaging;
+using InPoint.Cloud.OpenBarcode.Pdf;
 using UglyToad.PdfPig;
 using UglyToad.PdfPig.Content;
 
-namespace OpenBarcode
+namespace InPoint.Cloud.OpenBarcode
 {
     /// <summary>
     /// Reads barcodes from image files, PDF documents and raw bitmaps. Instances are immutable and thread-safe.

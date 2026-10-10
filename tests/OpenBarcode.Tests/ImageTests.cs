@@ -1,8 +1,8 @@
-using OpenBarcode.Imaging;
+using InPoint.Cloud.OpenBarcode.Imaging;
 using Xunit;
 using ZxFormat = ZXing.BarcodeFormat;
 
-namespace OpenBarcode.Tests;
+namespace InPoint.Cloud.OpenBarcode.Tests;
 
 public class ImageTests
 {

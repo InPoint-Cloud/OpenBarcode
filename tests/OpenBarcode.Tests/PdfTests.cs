@@ -2,7 +2,7 @@ using System.Text;
 using Xunit;
 using ZxFormat = ZXing.BarcodeFormat;
 
-namespace OpenBarcode.Tests;
+namespace InPoint.Cloud.OpenBarcode.Tests;
 
 public class PdfTests
 {

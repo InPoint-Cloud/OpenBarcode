@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UglyToad.PdfPig.Filters;
 using UglyToad.PdfPig.Filters.Jbig2.PdfboxJbig2;
 
-namespace OpenBarcode.Pdf
+namespace InPoint.Cloud.OpenBarcode.Pdf
 {
     /// <summary>PdfPig's built-in stream filters plus a managed JBIG2 decoder, which scanners use for bilevel pages.</summary>
     internal sealed class ManagedFilterProvider : BaseFilterProvider

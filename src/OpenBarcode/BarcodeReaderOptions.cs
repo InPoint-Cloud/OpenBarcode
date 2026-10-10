@@ -1,4 +1,4 @@
-namespace OpenBarcode
+namespace InPoint.Cloud.OpenBarcode
 {
     /// <summary>Settings for <see cref="BarcodeReader"/>.</summary>
     public sealed class BarcodeReaderOptions

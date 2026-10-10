@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using OpenBarcode.Imaging;
+using InPoint.Cloud.OpenBarcode.Imaging;
 
-namespace OpenBarcode.Pdf
+namespace InPoint.Cloud.OpenBarcode.Pdf
 {
     /// <summary>
     /// Scanline polygon filler. Samples each pixel at its centre (no anti-aliasing), which keeps bar

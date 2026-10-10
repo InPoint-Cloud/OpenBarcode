@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text;
 using ZXing.Common;
 
-namespace OpenBarcode.Tests;
+namespace InPoint.Cloud.OpenBarcode.Tests;
 
 /// <summary>
 /// A tiny PDF writer for tests. It gives exact control over content-stream operators and image

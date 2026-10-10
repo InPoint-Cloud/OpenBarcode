@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using OpenBarcode.Imaging;
+using InPoint.Cloud.OpenBarcode.Imaging;
 using UglyToad.PdfPig.Content;
 using UglyToad.PdfPig.Tokens;
 
-namespace OpenBarcode.Pdf
+namespace InPoint.Cloud.OpenBarcode.Pdf
 {
     /// <summary>Turns an image embedded in a PDF into a grayscale bitmap.</summary>
     internal static class PdfImageDecoder

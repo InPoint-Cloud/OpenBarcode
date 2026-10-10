@@ -1,13 +1,13 @@
 using System.IO.Compression;
 using System.Text;
 using BitMiracle.LibTiff.Classic;
-using OpenBarcode.Imaging;
+using InPoint.Cloud.OpenBarcode.Imaging;
 using StbImageWriteSharp;
 using ZXing;
 using ZXing.Common;
 using ZxFormat = ZXing.BarcodeFormat;
 
-namespace OpenBarcode.Tests;
+namespace InPoint.Cloud.OpenBarcode.Tests;
 
 /// <summary>Generates barcode bitmaps and encodes them into the file formats the reader accepts.</summary>
 internal static class Fixtures

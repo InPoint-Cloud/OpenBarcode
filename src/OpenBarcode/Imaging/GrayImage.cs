@@ -1,6 +1,6 @@
 using System;
 
-namespace OpenBarcode.Imaging
+namespace InPoint.Cloud.OpenBarcode.Imaging
 {
     /// <summary>An 8-bit grayscale bitmap (0 = black, 255 = white), row-major, top-down, no padding.</summary>
     public sealed class GrayImage
