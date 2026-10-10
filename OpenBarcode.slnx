@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/OpenBarcode.Cli/OpenBarcode.Cli.csproj" />
+    <Project Path="src/OpenBarcode/OpenBarcode.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/OpenBarcode.Tests/OpenBarcode.Tests.csproj" />
+  </Folder>
+</Solution>

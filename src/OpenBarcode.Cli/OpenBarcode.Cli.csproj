@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RollForward>Major</RollForward>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>OpenBarcode.Cli</AssemblyName>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>openbarcode</ToolCommandName>
+    <PackageId>OpenBarcode.Cli</PackageId>
+    <Version>0.1.0</Version>
+    <Description>Command-line barcode reader for images and PDF files.</Description>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\OpenBarcode\OpenBarcode.csproj" />
+  </ItemGroup>
+
+</Project>
