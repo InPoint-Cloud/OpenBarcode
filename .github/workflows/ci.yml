@@ -15,7 +15,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          # The .slnx solution needs the .NET 10 SDK; the tests run on the .NET 8 runtime.
+          dotnet-version: |
+            8.0.x
+            10.0.x
       - run: dotnet build -c Release
       - run: dotnet test -c Release --no-build
       - if: matrix.os == 'ubuntu-latest'

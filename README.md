@@ -117,6 +117,8 @@ can report inside a longer 1D barcode (a "UPC-E" made of half an EAN-13) are fil
 
 ## Building and testing
 
+Needs the .NET 10 SDK (for the `.slnx` solution file); the library itself targets .NET Standard 2.0 and .NET 8.
+
 ```
 dotnet build
 dotnet test
