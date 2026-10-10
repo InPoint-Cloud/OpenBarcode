@@ -9,17 +9,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>InPoint.Cloud.OpenBarcode.Cli</AssemblyName>
     <RootNamespace>InPoint.Cloud.OpenBarcode.Cli</RootNamespace>
-    <PackAsTool>true</PackAsTool>
-    <ToolCommandName>openbarcode</ToolCommandName>
-    <PackageId>InPoint.Cloud.OpenBarcode.Cli</PackageId>
-    <Description>Command-line barcode reader for images and PDF files (dotnet tool "openbarcode"). Pure managed code.</Description>
-    <PackageTags>barcode;qr;datamatrix;pdf;cli;dotnet-tool</PackageTags>
-    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- Not published: the CLI is for trying the library out from source. -->
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
-
-  <ItemGroup>
-    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
-  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\OpenBarcode\OpenBarcode.csproj" />

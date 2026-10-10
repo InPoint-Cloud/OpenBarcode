@@ -1,6 +1,6 @@
 name: Release
 
-# Publishes InPoint.Cloud.OpenBarcode and InPoint.Cloud.OpenBarcode.Cli to nuget.org when a tag like v1.2.3
+# Publishes InPoint.Cloud.OpenBarcode to nuget.org when a tag like v1.2.3
 # (or v1.2.3-beta.1) is pushed. Authentication uses nuget.org Trusted Publishing, so no API key is stored here.
 
 on:

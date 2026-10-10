@@ -16,7 +16,6 @@ foreach (var barcode in reader.ReadFile("invoice.pdf"))
 
 ```
 dotnet add package InPoint.Cloud.OpenBarcode
-dotnet tool install -g InPoint.Cloud.OpenBarcode.Cli   # command: openbarcode
 ```
 
 The namespace is `InPoint.Cloud.OpenBarcode`.
@@ -144,5 +143,5 @@ Apache-2.0. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the librari
 ## Releasing
 
 Push a tag such as `v0.1.0` (or `v0.2.0-beta.1` for a prerelease). The `Release` workflow builds, tests, packs and
-publishes both packages to nuget.org under the InPoint.Cloud account using Trusted Publishing, then creates a
-GitHub release with the packages attached. The package version comes from the tag.
+publishes the `InPoint.Cloud.OpenBarcode` package to nuget.org under the InPoint.Cloud account using Trusted Publishing, then creates a
+GitHub release with the package attached. The package version comes from the tag.
