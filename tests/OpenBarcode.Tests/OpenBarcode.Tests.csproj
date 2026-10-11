@@ -9,6 +9,8 @@
     <IsTestProject>true</IsTestProject>
     <OutputType>Exe</OutputType>
     <RootNamespace>InPoint.Cloud.OpenBarcode.Tests</RootNamespace>
+    <!-- Reads finish in seconds, so passing the test's cancellation token to every read adds noise, not responsiveness. -->
+    <NoWarn>$(NoWarn);xUnit1051</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

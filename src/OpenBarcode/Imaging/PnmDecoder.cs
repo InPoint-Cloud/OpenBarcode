@@ -6,7 +6,7 @@ namespace InPoint.Cloud.OpenBarcode.Imaging;
 /// <summary>Netpbm decoder: P1/P4 (bitmap), P2/P5 (graymap), P3/P6 (pixmap).</summary>
 internal static class PnmDecoder
 {
-    public static GrayImage Decode(byte[] data)
+    public static GrayImage Decode(byte[] data, long maxPixels)
     {
         var pos = 2;
         var kind = (char)data[1];
@@ -15,6 +15,7 @@ internal static class PnmDecoder
         var isBitmap = kind == '1' || kind == '4';
         var max = isBitmap ? 1 : ReadInt(data, ref pos);
         if (width <= 0 || height <= 0 || max <= 0 || max > 65535) throw new InvalidDataException("Invalid PNM header.");
+        ImageDecoder.CheckSize(width, height, maxPixels);
         pos++; // single whitespace after the header
 
         var gray = new byte[checked(width * height)];

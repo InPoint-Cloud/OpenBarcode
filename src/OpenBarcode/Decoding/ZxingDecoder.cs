@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using InPoint.Cloud.OpenBarcode.Imaging;
 using ZXing;
 using ZXing.Common;
@@ -51,10 +52,14 @@ internal sealed class ZxingDecoder
     /// <summary>1D formats plus PDF417, whose detector also scans along rows and so needs the image level.</summary>
     private readonly IList<ZxFormat> _rowScanFormats;
     private readonly bool _maxiCode;
+    private readonly CancellationToken _cancellationToken;
 
-    public ZxingDecoder(BarcodeReaderOptions options)
+    /// <param name="options">The reader's options.</param>
+    /// <param name="cancellationToken">Checked before every ZXing pass, so a long search over one image can be stopped.</param>
+    public ZxingDecoder(BarcodeReaderOptions options, CancellationToken cancellationToken = default)
     {
         _options = options;
+        _cancellationToken = cancellationToken;
         // ZXing's MaxiCode reader only handles tightly cropped symbols and throws IndexOutOfRangeException
         // on many other images, which would abort the whole pass. It gets a guarded pass of its own.
         _maxiCode = (options.Formats & BarcodeFormat.MaxiCode) != 0;
@@ -71,6 +76,7 @@ internal sealed class ZxingDecoder
     public List<RawHit> Decode(GrayImage image, bool enhance)
     {
         var hits = _formats.Count > 0 ? DecodePlain(image) : [];
+        hits.RemoveAll(h => IsImplausible(image, h));
         if (enhance && _formats.Count > 0)
         {
             var ballot = new Ballot();
@@ -90,6 +96,14 @@ internal sealed class ZxingDecoder
             if (hits.Count == 0)
                 hits = DecodeEnhanced(image, ballot);
         }
+        else if (hits.Exists(IsWeak))
+        {
+            // Without the ballot, a weakly checked read must at least repeat on a line beside it.
+            hits = hits.FindAll(h => !IsWeak(h) || RepeatsOnParallelLine(image, h));
+        }
+        // Votes from earlier passes can bring back a read a later pass found implausible.
+        hits.RemoveAll(h => IsImplausible(image, h));
+        RemoveConflicts(hits);
         if (_maxiCode && (hits.Count == 0 || _options.ReadMultiple))
         {
             var (prepared, map) = Prepare(image);
@@ -164,6 +178,11 @@ internal sealed class ZxingDecoder
     {
         foreach (var hits in EnhancedPasses(image, ballot))
         {
+            foreach (var hit in hits.FindAll(h => IsImplausible(image, h)))
+            {
+                ballot.Reject(hit);
+                hits.Remove(hit);
+            }
             ballot.Add(hits);
             var trusted = ballot.Trusted(hits);
             if (trusted.Count > 0) return trusted;
@@ -392,6 +411,115 @@ internal sealed class ZxingDecoder
         }
         return false;
     }
+
+    /// <summary>
+    /// Drops weakly checked reads that another read of the same format, with different text, contradicts in the
+    /// same place. Passes over a damaged code can each make a different misread that passes the check digit;
+    /// since the picture does not say which one is right, reporting none beats reporting a wrong number.
+    /// </summary>
+    private static void RemoveConflicts(List<RawHit> hits)
+    {
+        var conflicting = hits.FindAll(a => IsWeak(a) && hits.Exists(b => b.Format == a.Format && b.Text != a.Text && SamePlace(a, b)));
+        hits.RemoveAll(conflicting.Contains);
+    }
+
+    /// <summary>Whether two 1D reads lie on the same symbol: centres closer than a quarter of the longer one's length.</summary>
+    private static bool SamePlace(RawHit a, RawHit b)
+    {
+        if (a.Points.Length < 2 || b.Points.Length < 2) return false;
+        var (ca, la) = CentreAndLength(a);
+        var (cb, lb) = CentreAndLength(b);
+        return Distance(ca, cb) < Math.Max(la, lb) / 4;
+    }
+
+    private static (BarcodePoint Centre, double Length) CentreAndLength(RawHit hit)
+    {
+        Bounds(hit, out var x0, out var y0, out var x1, out var y1);
+        return (new BarcodePoint((x0 + x1) / 2, (y0 + y1) / 2), Math.Max(x1 - x0, y1 - y0));
+    }
+
+    /// <summary>Reads that cannot be real whatever the passes agree on: retail codes without margins, element strings cut short.</summary>
+    private static bool IsImplausible(GrayImage image, RawHit hit) => !HasQuietZones(image, hit) || EndsWithEmptyElement(hit);
+
+    /// <summary>
+    /// Whether an EAN/UPC read has light margins beyond its guard bars. ZXing only looks for a margin as wide as
+    /// the start guard, so the bars of an unreadable Code 128 or PDF417, or the modules of a 2D code, pass for
+    /// a short UPC-E or EAN-8 in the middle of more bars. Real retail codes are printed with quiet zones of
+    /// 7 modules or more.
+    /// </summary>
+    private static bool HasQuietZones(GrayImage image, RawHit hit)
+    {
+        var span = GuardSpan(hit.Format);
+        if (span == 0 || hit.Points.Length != 2) return true;
+        var (a, b) = (hit.Points[0], hit.Points[1]);
+        var length = Distance(a, b);
+        var module = length / span;
+        if (module < 1) return true;
+        double ux = (b.X - a.X) / length, uy = (b.Y - a.Y) / length;
+        var half = Math.Max(2, module);
+        // The points are the centres of the guards. UPC-E's end guard is 6 modules wide, so its centre lies
+        // 3 modules inside the edge; the points do not say which end is which, so allow that much at both.
+        var guard = hit.Format == BarcodeFormat.UpcE ? 3 * module : 1.5 * module;
+
+        var code = new List<double>();
+        for (var t = -guard; t <= length + guard; t++)
+            code.Add(BandMean(image, a.X + t * ux, a.Y + t * uy, -uy, ux, half));
+        code.Sort();
+        double dark = code[code.Count / 10], light = code[code.Count * 9 / 10];
+        var threshold = (dark + light) / 2;
+
+        var window = Math.Max(1, (int)Math.Round(module));
+        return IsLight(a.X - (guard + module) * ux, a.Y - (guard + module) * uy, -ux, -uy)
+            && IsLight(b.X + (guard + module) * ux, b.Y + (guard + module) * uy, ux, uy);
+
+        // The margin from (x, y) outwards along (dx, dy), averaged over a module at a time, never goes as dark as midway.
+        bool IsLight(double x, double y, double dx, double dy)
+        {
+            var steps = (int)((MinQuietModules - 1) * module);
+            var samples = new double[steps];
+            for (var i = 0; i < steps; i++) samples[i] = BandMean(image, x + i * dx, y + i * dy, -uy, ux, half);
+            for (var i = 0; i + window <= steps; i++)
+            {
+                double sum = 0;
+                for (var j = 0; j < window; j++) sum += samples[i + j];
+                if (sum / window < threshold) return false;
+            }
+            return true;
+        }
+    }
+
+    /// <summary>Modules between the centres of the start and end guards of an EAN/UPC code, or 0 for other formats.</summary>
+    private static double GuardSpan(BarcodeFormat format) => format switch
+    {
+        BarcodeFormat.Ean13 or BarcodeFormat.UpcA => 92,
+        BarcodeFormat.Ean8 => 64,
+        BarcodeFormat.UpcE => 46.5,
+        _ => 0,
+    };
+
+    /// <summary>Light margin required on each side of an EAN/UPC code, in modules; the standards ask for 7 to 11.</summary>
+    private const double MinQuietModules = 5;
+
+    /// <summary>The mean grey level across the bars at (x, y): <paramref name="half"/> pixels either way along (nx, ny).</summary>
+    private static double BandMean(GrayImage image, double x, double y, double nx, double ny, double half)
+    {
+        double sum = 0;
+        var count = 0;
+        for (var o = -half; o <= half; o++)
+        {
+            int px = (int)Math.Round(x + o * nx), py = (int)Math.Round(y + o * ny);
+            sum += px < 0 || py < 0 || px >= image.Width || py >= image.Height ? 255 : image.Pixels[py * image.Width + px];
+            count++;
+        }
+        return sum / count;
+    }
+
+    /// <summary>
+    /// A GS1 DataBar Expanded read whose last application identifier has no data, like "(3920)". ZXing
+    /// assembles these from noise; a printed element string never ends that way.
+    /// </summary>
+    private static bool EndsWithEmptyElement(RawHit hit) =>
+        hit.Format == BarcodeFormat.DataBarExpanded && hit.Text.EndsWith(")", StringComparison.Ordinal);
 
     /// <summary>How far to either side <see cref="RepeatsOnParallelLine"/> looks, as a share of the code's width.</summary>
     private const double ParallelLineOffset = 0.015;
@@ -646,6 +774,30 @@ internal sealed class ZxingDecoder
         }
     }
 
+    /// <summary>
+    /// A PDF417 read at error correction level 0 or 1 that used more correction than ISO 15438 allows:
+    /// e erasures and t errors must satisfy e + 2t ≤ k − 2 for k correction codewords, keeping two for detecting
+    /// a misdecode. ZXing does not hold back those two, so at level 0, with only two codewords, it turns plain
+    /// noise into "AAAA". From level 2 (8 codewords) up, misdecodes are rare enough that the rule would only
+    /// cost real reads of damaged codes.
+    /// </summary>
+    private static bool OverCorrected(Result result)
+    {
+        if (result.BarcodeFormat != ZxFormat.PDF_417 || result.ResultMetadata == null) return false;
+        if (!TryGetInt(result, ResultMetadataType.ERROR_CORRECTION_LEVEL, out var level) || level > 1) return false;
+        TryGetInt(result, ResultMetadataType.ERRORS_CORRECTED, out var errors);
+        TryGetInt(result, ResultMetadataType.ERASURES_CORRECTED, out var erasures);
+        var codewords = 2 << level;
+        return erasures + 2 * errors > codewords - 2;
+    }
+
+    private static bool TryGetInt(Result result, ResultMetadataType key, out int value)
+    {
+        value = 0;
+        return result.ResultMetadata.TryGetValue(key, out var raw) && raw != null
+            && int.TryParse(raw.ToString(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out value);
+    }
+
     /// <summary>Looks for Data Matrix / Aztec in a crop around one region; hits are in <paramref name="image"/> coordinates.</summary>
     private List<RawHit> DecodeRegion(GrayImage image, Region region, bool sampleDataMatrix)
     {
@@ -726,6 +878,7 @@ internal sealed class ZxingDecoder
 
     private List<RawHit> Run(GrayImage image, bool hybrid, Affine map, IList<ZxFormat> formats, bool multiple)
     {
+        _cancellationToken.ThrowIfCancellationRequested();
         var reader = CreateReader(hybrid, formats);
         var source = new RGBLuminanceSource(image.Pixels, image.Width, image.Height, RGBLuminanceSource.BitmapFormat.Gray8);
         if (!TryDecode(reader, source, multiple, out var results)) return [];
@@ -741,7 +894,7 @@ internal sealed class ZxingDecoder
         {
             if (r == null || string.IsNullOrEmpty(r.Text)) continue;
             var format = FromZxing(r.BarcodeFormat);
-            if (format == BarcodeFormat.None) continue;
+            if (format == BarcodeFormat.None || OverCorrected(r)) continue;
             hits.Add(new RawHit(r.Text, format, r.RawBytes, ToPoints(map, r.ResultPoints)));
         }
         return hits;

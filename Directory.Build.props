@@ -1,7 +1,7 @@
 <Project>
   <!-- Package metadata shared by every project. The release workflow overrides Version from the git tag. -->
   <PropertyGroup>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Authors>InPoint.Cloud</Authors>
     <Company>InPoint.Cloud</Company>
     <Copyright>Copyright © InPoint.Cloud</Copyright>

@@ -61,6 +61,17 @@ var image = GrayImage.FromPixels(bgraBytes, width, height, PixelLayout.Bgra32, s
 results = reader.Read(image);
 ```
 
+Long documents can be read page by page, and any read can be cancelled:
+
+```csharp
+// Each page's barcodes come back as soon as that page is done; breaking out of the loop stops reading.
+foreach (var barcode in reader.EnumerateFile("archive.pdf", warnings, cancellationToken))
+    Console.WriteLine($"page {barcode.PageNumber}: {barcode.Text}");
+
+// Every Read method has an overload that takes a CancellationToken; it throws OperationCanceledException.
+results = reader.ReadFile("scan.tif", cancellationToken);
+```
+
 Each `BarcodeResult` has `Text`, `Format`, `RawBytes`, `Points` (corner or end points, in pixels of the image it
 was decoded from), `Source` (`Image`, `PdfImage`, `PdfVector`), `PageNumber` (PDFs, 1-based) and `FrameIndex`
 (TIFF page, or image index on a PDF page).
@@ -80,6 +91,7 @@ was decoded from), `Source` (`Image`, `PdfImage`, `PdfVector`), `PageNumber` (PD
 | `PdfReadImages` / `PdfReadVectorGraphics` | `true` | Turn either PDF source off. |
 | `PdfRenderDpi` | `300` | Resolution for vector graphics. |
 | `PdfMaxRenderPixels` | 40 M | Caps memory for huge pages; DPI is lowered to fit. |
+| `MaxImagePixels` | 100 M | Larger images (files, TIFF pages, images in PDFs) are refused from their header, so a small file can't claim gigabytes. |
 | `PdfFirstPage` / `PdfLastPage` | all | Page range. |
 | `PdfPassword` | | For encrypted PDFs. |
 | `CharacterSet` | | Fallback encoding for byte-mode data, e.g. `"ISO-8859-1"`. |
@@ -89,6 +101,7 @@ was decoded from), `Source` (`Image`, `PdfImage`, `PdfVector`), `PageNumber` (PD
 ```
 dotnet run --project src/OpenBarcode.Cli -- invoice.pdf scans/*.tif
 dotnet run --project src/OpenBarcode.Cli -- --json --formats qr,datamatrix label.png
+openbarcode -j 0 scans/*.pdf   # read a batch on every core; output keeps the order of the files
 ```
 
 Run with `--help` for all options. Output is `file[:page]<TAB>format<TAB>text`; the exit code is 0 when
@@ -127,7 +140,8 @@ clean-up passes that run only when the normal passes find nothing:
 Codes with only a single check digit (EAN/UPC, EAN-8, UPC-E, ITF, Codabar, DataBar) are easy to "read" out of
 noise, so on these passes they are only reported when two different passes agree, and a read must also
 repeat on a line a little beside the one it came from: real bars carry on, while the texture of a 2D code or
-of a tilted 1D code that passed for a short UPC-E or EAN-8 does not.
+of a tilted 1D code that passed for a short UPC-E or EAN-8 does not. EAN/UPC codes must also have light margins beyond their guard
+bars, and when passes read one damaged EAN/UPC code as different numbers, none of them is reported.
 
 ## Limitations
 
@@ -168,12 +182,29 @@ The tests generate barcodes in every supported symbology and file format, build 
 streams and image dictionaries, and read real-world-style samples made by reportlab, poppler, ImageMagick and
 jbig2enc (`tests/samples`).
 
+### Detection benchmark
+
+`tests/OpenBarcode.Benchmark` renders 594 poor pictures (11 conditions such as blur, noise, fading, tilt,
+perspective and phone photos, each for 9 symbologies at 6 severities) plus 24 pictures without a barcode, and
+prints how many were read per condition and how many reads were wrong. CI runs it on every push and fails when
+fewer pictures are read or more are read wrongly than in `tests/OpenBarcode.Benchmark/baseline.json`.
+
+```
+dotnet run -c Release --project tests/OpenBarcode.Benchmark -- --baseline tests/OpenBarcode.Benchmark/baseline.json --verbose
+```
+
+After a change that reads more, save the new result with `--save tests/OpenBarcode.Benchmark/baseline.json` and
+commit it with the change.
+
 ## License
 
 Apache-2.0. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the libraries it builds on.
 
 ## Releasing
 
-Push a tag such as `v0.1.0` (or `v0.2.0-beta.1` for a prerelease). The `Release` workflow builds, tests, packs and
+Move the `Unreleased` notes in [CHANGELOG.md](CHANGELOG.md) under the new version, then push a tag such as
+`v0.2.0` (or `v0.3.0-beta.1` for a prerelease). The `Release` workflow builds, tests, packs and
 publishes both packages to nuget.org under the InPoint.Cloud account using Trusted Publishing, then creates a
-GitHub release with the packages attached. The package version comes from the tag.
+GitHub release with the packages attached. The package version comes from the tag. After a release, set
+`PackageValidationBaselineVersion` in `src/OpenBarcode/OpenBarcode.csproj` to it: packing fails when the public API
+breaks compatibility with that version.
