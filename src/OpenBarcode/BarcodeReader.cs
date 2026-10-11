@@ -130,48 +130,57 @@ public sealed class BarcodeReader
     private void ReadPage(Page page, ZxingDecoder decoder, ResultSet results, ICollection<string>? warnings)
     {
         if (_options.PdfReadImages)
-        {
-            var index = 0;
-            foreach (var image in page.GetImages())
-            {
-                var imageIndex = index++;
-                GrayImage? bitmap;
-                string? reason;
-                try
-                {
-                    bitmap = PdfImageDecoder.Decode(image, out reason);
-                }
-                catch (Exception ex) when (ex is not OutOfMemoryException)
-                {
-                    bitmap = null;
-                    reason = ex.Message;
-                }
-                if (bitmap == null)
-                {
-                    warnings?.Add($"Page {page.Number}, image {imageIndex}: skipped ({reason}).");
-                    continue;
-                }
-                if (bitmap.Width < 8 || bitmap.Height < 8) continue;
-                results.AddAll(decoder.Decode(bitmap, _options.EnhancePoorImages), BarcodeSource.PdfImage, page.Number, imageIndex);
-            }
-        }
-
+            ReadPageImages(page, decoder, results, warnings);
         if (_options.PdfReadVectorGraphics)
+            ReadPageVectors(page, decoder, results, warnings);
+    }
+
+    private void ReadPageImages(Page page, ZxingDecoder decoder, ResultSet results, ICollection<string>? warnings)
+    {
+        var index = 0;
+        foreach (var image in page.GetImages())
         {
-            GrayImage? raster;
-            try
+            var imageIndex = index++;
+            var bitmap = DecodeImage(image, out var reason);
+            if (bitmap == null)
             {
-                raster = VectorPageRenderer.Render(page, _options.PdfRenderDpi, _options.PdfMaxRenderPixels);
+                warnings?.Add($"Page {page.Number}, image {imageIndex}: skipped ({reason}).");
+                continue;
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                warnings?.Add($"Page {page.Number}: vector graphics could not be rendered ({ex.Message}).");
-                raster = null;
-            }
-            if (raster != null)
-                // Rendered vector graphics are clean, so the clean-up passes would only cost time.
-                results.AddAll(decoder.Decode(raster, enhance: false), BarcodeSource.PdfVector, page.Number, null);
+            if (bitmap.Width < 8 || bitmap.Height < 8) continue;
+            results.AddAll(decoder.Decode(bitmap, _options.EnhancePoorImages), BarcodeSource.PdfImage, page.Number, imageIndex);
         }
+    }
+
+    /// <summary>Decodes an embedded image; null with a reason when it is unsupported or broken.</summary>
+    private static GrayImage? DecodeImage(IPdfImage image, out string? reason)
+    {
+        try
+        {
+            return PdfImageDecoder.Decode(image, out reason);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            reason = ex.Message;
+            return null;
+        }
+    }
+
+    private void ReadPageVectors(Page page, ZxingDecoder decoder, ResultSet results, ICollection<string>? warnings)
+    {
+        GrayImage? raster;
+        try
+        {
+            raster = VectorPageRenderer.Render(page, _options.PdfRenderDpi, _options.PdfMaxRenderPixels);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            warnings?.Add($"Page {page.Number}: vector graphics could not be rendered ({ex.Message}).");
+            raster = null;
+        }
+        if (raster != null)
+            // Rendered vector graphics are clean, so the clean-up passes would only cost time.
+            results.AddAll(decoder.Decode(raster, enhance: false), BarcodeSource.PdfVector, page.Number, null);
     }
 
     private static BarcodeReaderOptions Copy(BarcodeReaderOptions o) => new()

@@ -1,3 +1,5 @@
+using System;
+
 namespace InPoint.Cloud.OpenBarcode.Imaging;
 
 /// <summary>File types recognised from their leading bytes.</summary>
@@ -29,28 +31,52 @@ internal static class FormatSniffer
 {
     public static ImageFileFormat Detect(byte[] data)
     {
-        var n = data.Length;
-        if (n >= 4)
-        {
-            // PDF headers may be preceded by junk; the spec allows the header within the first 1024 bytes.
-            var limit = System.Math.Min(n - 4, 1024);
-            for (var i = 0; i <= limit; i++)
-                if (data[i] == '%' && data[i + 1] == 'P' && data[i + 2] == 'D' && data[i + 3] == 'F')
-                    return ImageFileFormat.Pdf;
-        }
-        if (n >= 8 && data[0] == 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G') return ImageFileFormat.Png;
-        if (n >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF) return ImageFileFormat.Jpeg;
-        if (n >= 2 && data[0] == 'B' && data[1] == 'M') return ImageFileFormat.Bmp;
-        if (n >= 4 && data[0] == 'G' && data[1] == 'I' && data[2] == 'F' && data[3] == '8') return ImageFileFormat.Gif;
-        if (n >= 4 && ((data[0] == 'I' && data[1] == 'I' && (data[2] == 42 || data[2] == 43) && data[3] == 0) ||
-                       (data[0] == 'M' && data[1] == 'M' && data[2] == 0 && (data[3] == 42 || data[3] == 43))))
-            return ImageFileFormat.Tiff;
-        if (n >= 4 && data[0] == '8' && data[1] == 'B' && data[2] == 'P' && data[3] == 'S') return ImageFileFormat.Psd;
-        if (n >= 3 && data[0] == 'P' && data[1] >= '1' && data[1] <= '6' && IsSpace(data[2])) return ImageFileFormat.Pnm;
-        if (n >= 18 && (data[2] == 1 || data[2] == 2 || data[2] == 3 || data[2] == 9 || data[2] == 10 || data[2] == 11) && data[1] <= 1)
-            return ImageFileFormat.Tga;
+        if (HasPdfHeader(data)) return ImageFileFormat.Pdf;
+        if (data.Length >= 8 && StartsWith(data, "\u0089PNG")) return ImageFileFormat.Png;
+        if (StartsWith(data, "\u00FF\u00D8\u00FF")) return ImageFileFormat.Jpeg;
+        if (StartsWith(data, "BM")) return ImageFileFormat.Bmp;
+        if (StartsWith(data, "GIF8")) return ImageFileFormat.Gif;
+        if (IsTiff(data)) return ImageFileFormat.Tiff;
+        if (StartsWith(data, "8BPS")) return ImageFileFormat.Psd;
+        if (IsPnm(data)) return ImageFileFormat.Pnm;
+        if (IsTga(data)) return ImageFileFormat.Tga;
         return ImageFileFormat.Unknown;
     }
+
+    /// <summary>PDF headers may be preceded by junk; the spec allows the header within the first 1024 bytes.</summary>
+    private static bool HasPdfHeader(byte[] data)
+    {
+        var limit = Math.Min(data.Length - 4, 1024);
+        for (var i = 0; i <= limit; i++)
+            if (data[i] == '%' && data[i + 1] == 'P' && data[i + 2] == 'D' && data[i + 3] == 'F')
+                return true;
+        return false;
+    }
+
+    /// <summary>Whether <paramref name="data"/> begins with the bytes of <paramref name="prefix"/>, one per character.</summary>
+    private static bool StartsWith(byte[] data, string prefix)
+    {
+        if (data.Length < prefix.Length) return false;
+        for (var i = 0; i < prefix.Length; i++)
+            if (data[i] != prefix[i]) return false;
+        return true;
+    }
+
+    /// <summary>Little-endian ("II") or big-endian ("MM") TIFF or BigTIFF.</summary>
+    private static bool IsTiff(byte[] data) =>
+        data.Length >= 4 && ((StartsWith(data, "II") && IsTiffVersion(data[2]) && data[3] == 0) ||
+                             (StartsWith(data, "MM") && data[2] == 0 && IsTiffVersion(data[3])));
+
+    private static bool IsTiffVersion(byte b) => b == 42 || b == 43;
+
+    private static bool IsPnm(byte[] data) =>
+        data.Length >= 3 && data[0] == 'P' && data[1] >= '1' && data[1] <= '6' && IsSpace(data[2]);
+
+    /// <summary>A known TGA image type and a colour map flag of 0 or 1.</summary>
+    private static bool IsTga(byte[] data) =>
+        data.Length >= 18 && Array.IndexOf(TgaImageTypes, data[2]) >= 0 && data[1] <= 1;
+
+    private static readonly byte[] TgaImageTypes = [1, 2, 3, 9, 10, 11];
 
     private static bool IsSpace(byte b) => b == ' ' || b == '\n' || b == '\r' || b == '\t';
 }

@@ -73,30 +73,23 @@ internal static class PdfImageDecoder
         {
             var row = y * rowBytes;
             for (var x = 0; x < width; x++)
-            {
-                byte v;
-                if (bpc == 1)
-                {
-                    var bit = (data[row + x / 8] & (0x80 >> (x & 7))) != 0;
-                    // Image masks paint where the sample is 0; regular 1-bit gray uses 1 = white.
-                    v = bit ? (byte)255 : (byte)0;
-                }
-                else
-                {
-                    var p = row + x * components * bytesPerSample;
-                    int c0 = data[p];
-                    if (components == 1) v = (byte)c0;
-                    else if (components == 3) v = GrayImage.Luma(c0, data[p + bytesPerSample], data[p + 2 * bytesPerSample]);
-                    else
-                    {
-                        int c = c0, m = data[p + bytesPerSample], yy = data[p + 2 * bytesPerSample], k = data[p + 3 * bytesPerSample];
-                        v = GrayImage.Luma(255 - Math.Min(255, c + k), 255 - Math.Min(255, m + k), 255 - Math.Min(255, yy + k));
-                    }
-                }
-                gray[y * width + x] = v;
-            }
+                gray[y * width + x] = bpc == 1 ? BitSample(data, row, x) : Luma(data, row + x * components * bytesPerSample, components, bytesPerSample);
         }
         return new GrayImage(width, height, gray);
+    }
+
+    /// <summary>Image masks paint where the sample is 0; regular 1-bit gray uses 1 = white.</summary>
+    private static byte BitSample(byte[] data, int row, int x) =>
+        (data[row + x / 8] & (0x80 >> (x & 7))) != 0 ? (byte)255 : (byte)0;
+
+    /// <summary>The gray level of the gray, RGB or CMYK pixel at <paramref name="p"/>, using each sample's high byte.</summary>
+    private static byte Luma(byte[] data, int p, int components, int bytesPerSample)
+    {
+        int c0 = data[p];
+        if (components == 1) return (byte)c0;
+        if (components == 3) return GrayImage.Luma(c0, data[p + bytesPerSample], data[p + 2 * bytesPerSample]);
+        int c = c0, m = data[p + bytesPerSample], yy = data[p + 2 * bytesPerSample], k = data[p + 3 * bytesPerSample];
+        return GrayImage.Luma(255 - Math.Min(255, c + k), 255 - Math.Min(255, m + k), 255 - Math.Min(255, yy + k));
     }
 
     /// <summary>True when the /Decode array maps the first component high-to-low, e.g. [1 0].</summary>

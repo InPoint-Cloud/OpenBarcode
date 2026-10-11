@@ -1,3 +1,5 @@
+using System;
+
 namespace InPoint.Cloud.OpenBarcode.Decoding;
 
 /// <summary>
@@ -42,23 +44,42 @@ internal static class ReedSolomonErasures
         int n = block.Length, f = erasures.Length;
         if (f > checkCount || n > 255) return false;
 
-        var syndromes = new int[checkCount];
-        var clean = true;
-        for (var j = 0; j < checkCount; j++)
-        {
-            // Evaluate the received polynomial (highest power first) at alpha^j.
-            int s = 0, a = Exp[j];
-            foreach (var c in block) s = Mul(s, a) ^ c;
-            syndromes[j] = s;
-            if (s != 0) clean = false;
-        }
-        if (clean)
+        var syndromes = Syndromes(block, checkCount);
+        if (Array.TrueForAll(syndromes, s => s == 0))
         {
             spare = checkCount;
             return true;
         }
 
-        // Erasure locator: product of (1 - X x) for each erased position, X = alpha^(n - 1 - index).
+        var lambda = BerlekampMassey(syndromes, ErasureLocator(erasures, n, checkCount), f);
+        var degree = checkCount;
+        while (degree > 0 && lambda[degree] == 0) degree--;
+        var errors = degree - f;
+        if (errors < 0 || f + 2 * errors > checkCount) return false;
+
+        var fixes = FindErrors(lambda, degree, Omega(lambda, degree, syndromes), n);
+        if (fixes == null) return false;
+        foreach (var (index, value) in fixes) block[index] ^= value;
+        spare = checkCount - f - 2 * errors;
+        return true;
+    }
+
+    /// <summary>The received polynomial (highest power first) evaluated at alpha^0 .. alpha^(checkCount - 1).</summary>
+    private static int[] Syndromes(int[] block, int checkCount)
+    {
+        var syndromes = new int[checkCount];
+        for (var j = 0; j < checkCount; j++)
+        {
+            int s = 0, a = Exp[j];
+            foreach (var c in block) s = Mul(s, a) ^ c;
+            syndromes[j] = s;
+        }
+        return syndromes;
+    }
+
+    /// <summary>Erasure locator: product of (1 - X x) for each erased position, X = alpha^(n - 1 - index).</summary>
+    private static int[] ErasureLocator(int[] erasures, int n, int checkCount)
+    {
         var gamma = new int[checkCount + 1];
         gamma[0] = 1;
         var gammaDegree = 0;
@@ -67,8 +88,14 @@ internal static class ReedSolomonErasures
             var x = Exp[n - 1 - index];
             for (var k = ++gammaDegree; k > 0; k--) gamma[k] ^= Mul(gamma[k - 1], x);
         }
+        return gamma;
+    }
 
-        // Berlekamp-Massey, started from the erasure locator (Blahut's errors-and-erasures form).
+    /// <summary>Berlekamp-Massey, started from the erasure locator (Blahut's errors-and-erasures form).</summary>
+    /// <returns>The errata locator, with <c>syndromes.Length + 1</c> coefficients.</returns>
+    private static int[] BerlekampMassey(int[] syndromes, int[] gamma, int f)
+    {
+        var checkCount = syndromes.Length;
         var lambda = (int[])gamma.Clone();
         var b = (int[])gamma.Clone();
         var length = f;
@@ -90,38 +117,53 @@ internal static class ReedSolomonErasures
             }
             lambda = next;
         }
+        return lambda;
+    }
 
-        var degree = checkCount;
-        while (degree > 0 && lambda[degree] == 0) degree--;
-        var errors = degree - f;
-        if (errors < 0 || f + 2 * errors > checkCount) return false;
-
-        // Chien search for the roots X^-1, then Forney for the values.
-        var omega = new int[checkCount];
-        for (var i = 0; i < checkCount; i++)
+    /// <summary>The errata evaluator: the syndrome polynomial times the locator, modulo x^checkCount.</summary>
+    private static int[] Omega(int[] lambda, int degree, int[] syndromes)
+    {
+        var omega = new int[syndromes.Length];
+        for (var i = 0; i < omega.Length; i++)
             for (var k = 0; k <= i && k <= degree; k++)
                 omega[i] ^= Mul(lambda[k], syndromes[i - k]);
+        return omega;
+    }
 
+    /// <summary>
+    /// Chien search for the roots X^-1 of the locator, then Forney for the values. Null unless the locator has
+    /// exactly <paramref name="degree"/> distinct roots within the block.
+    /// </summary>
+    private static (int Index, int Value)[]? FindErrors(int[] lambda, int degree, int[] omega, int n)
+    {
         var found = 0;
         var fixes = new (int Index, int Value)[degree];
         for (var index = 0; index < n; index++)
         {
             var power = n - 1 - index;
             var xInv = Exp[(255 - power) % 255];
-            var value = 0;
-            for (var k = degree; k >= 0; k--) value = Mul(value, xInv) ^ lambda[k];
-            if (value != 0) continue;
-            // Formal derivative: only odd powers survive in characteristic 2.
-            var derivative = 0;
-            for (var k = 1; k <= degree; k += 2) derivative ^= Mul(lambda[k], Exp[(Log[xInv] * (k - 1)) % 255]);
-            var numerator = 0;
-            for (var k = checkCount - 1; k >= 0; k--) numerator = Mul(numerator, xInv) ^ omega[k];
-            if (derivative == 0 || found == degree) return false;
+            if (Evaluate(lambda, degree, xInv) != 0) continue;
+            var derivative = Derivative(lambda, degree, xInv);
+            var numerator = Evaluate(omega, omega.Length - 1, xInv);
+            if (derivative == 0 || found == degree) return null;
             fixes[found++] = (index, Mul(Exp[power], Mul(numerator, Inv(derivative))));
         }
-        if (found != degree) return false;
-        foreach (var (index, value) in fixes) block[index] ^= value;
-        spare = checkCount - f - 2 * errors;
-        return true;
+        return found == degree ? fixes : null;
+    }
+
+    /// <summary>Evaluates the polynomial with coefficients <paramref name="poly"/>[0 .. degree] (lowest power first) at x.</summary>
+    private static int Evaluate(int[] poly, int degree, int x)
+    {
+        var value = 0;
+        for (var k = degree; k >= 0; k--) value = Mul(value, x) ^ poly[k];
+        return value;
+    }
+
+    /// <summary>The formal derivative at x: only odd powers survive in characteristic 2.</summary>
+    private static int Derivative(int[] poly, int degree, int x)
+    {
+        var value = 0;
+        for (var k = 1; k <= degree; k += 2) value ^= Mul(poly[k], Exp[(Log[x] * (k - 1)) % 255]);
+        return value;
     }
 }

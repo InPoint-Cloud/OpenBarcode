@@ -22,47 +22,9 @@ internal static class ImageFilters
         var minRange = (float)Math.Min(96, Math.Max(12, 14 * NoiseLevel(image)));
         var block = Clamp(Math.Max(w, h) / 24, 8, 64);
         int bw = (w + block - 1) / block, bh = (h + block - 1) / block;
-        var lo = new byte[bw * bh];
-        var hi = new byte[bw * bh];
         var px = image.Pixels;
-        for (var by = 0; by < bh; by++)
-            for (var bx = 0; bx < bw; bx++)
-            {
-                int min = 255, max = 0;
-                int y1 = Math.Min(h, (by + 1) * block), x1 = Math.Min(w, (bx + 1) * block);
-                for (var y = by * block; y < y1; y++)
-                {
-                    var row = y * w;
-                    for (var x = bx * block; x < x1; x++)
-                    {
-                        int v = px[row + x];
-                        if (v < min) min = v;
-                        if (v > max) max = v;
-                    }
-                }
-                lo[by * bw + bx] = (byte)min;
-                hi[by * bw + bx] = (byte)max;
-            }
-
-        // Widen each block's range to its neighbours, so a block that falls inside a wide bar or a large
-        // module still sees the paper next to it.
-        var lo2 = new float[bw * bh];
-        var hi2 = new float[bw * bh];
-        for (var by = 0; by < bh; by++)
-            for (var bx = 0; bx < bw; bx++)
-            {
-                int min = 255, max = 0;
-                for (var dy = -1; dy <= 1; dy++)
-                    for (var dx = -1; dx <= 1; dx++)
-                    {
-                        int nx = bx + dx, ny = by + dy;
-                        if (nx < 0 || ny < 0 || nx >= bw || ny >= bh) continue;
-                        min = Math.Min(min, lo[ny * bw + nx]);
-                        max = Math.Max(max, hi[ny * bw + nx]);
-                    }
-                lo2[by * bw + bx] = min;
-                hi2[by * bw + bx] = max;
-            }
+        var (lo, hi) = BlockRanges(image, block, bw, bh);
+        var (lo2, hi2) = WidenToNeighbours(lo, hi, bw, bh);
 
         var dst = new byte[w * h];
         for (var y = 0; y < h; y++)
@@ -84,6 +46,65 @@ internal static class ImageFilters
             }
         }
         return new GrayImage(w, h, dst);
+    }
+
+    /// <summary>The darkest and lightest value in each square block of the image.</summary>
+    private static (byte[] Lo, byte[] Hi) BlockRanges(GrayImage image, int block, int bw, int bh)
+    {
+        int w = image.Width, h = image.Height;
+        var lo = new byte[bw * bh];
+        var hi = new byte[bw * bh];
+        for (var by = 0; by < bh; by++)
+            for (var bx = 0; bx < bw; bx++)
+            {
+                int y1 = Math.Min(h, (by + 1) * block), x1 = Math.Min(w, (bx + 1) * block);
+                var (min, max) = Range(image, bx * block, by * block, x1, y1);
+                lo[by * bw + bx] = (byte)min;
+                hi[by * bw + bx] = (byte)max;
+            }
+        return (lo, hi);
+    }
+
+    /// <summary>The darkest and lightest value in the rectangle [x0, x1) x [y0, y1).</summary>
+    private static (int Min, int Max) Range(GrayImage image, int x0, int y0, int x1, int y1)
+    {
+        int min = 255, max = 0;
+        var px = image.Pixels;
+        for (var y = y0; y < y1; y++)
+        {
+            var row = y * image.Width;
+            for (var x = x0; x < x1; x++)
+            {
+                int v = px[row + x];
+                min = Math.Min(min, v);
+                max = Math.Max(max, v);
+            }
+        }
+        return (min, max);
+    }
+
+    /// <summary>
+    /// Widens each block's range to its neighbours, so a block that falls inside a wide bar or a large
+    /// module still sees the paper next to it.
+    /// </summary>
+    private static (float[] Lo, float[] Hi) WidenToNeighbours(byte[] lo, byte[] hi, int bw, int bh)
+    {
+        var lo2 = new float[bw * bh];
+        var hi2 = new float[bw * bh];
+        for (var by = 0; by < bh; by++)
+            for (var bx = 0; bx < bw; bx++)
+            {
+                int min = 255, max = 0;
+                for (var ny = Math.Max(0, by - 1); ny <= Math.Min(bh - 1, by + 1); ny++)
+                    for (var nx = Math.Max(0, bx - 1); nx <= Math.Min(bw - 1, bx + 1); nx++)
+                    {
+                        min = Math.Min(min, lo[ny * bw + nx]);
+                        max = Math.Max(max, hi[ny * bw + nx]);
+                    }
+                lo2[by * bw + bx] = min;
+                hi2[by * bw + bx] = max;
+            }
+        return (lo2, hi2);
     }
 
     /// <summary>
@@ -234,28 +255,32 @@ internal static class ImageFilters
     public static GrayImage BoxBlur(GrayImage image, int radiusX, int radiusY)
     {
         int w = image.Width, h = image.Height;
+        var tmp = radiusX > 0 ? BoxBlurRows(image, radiusX) : (byte[])image.Pixels.Clone();
+        if (radiusY <= 0) return new GrayImage(w, h, tmp);
+        return new GrayImage(w, h, BoxBlurColumns(tmp, w, h, radiusY));
+    }
+
+    private static byte[] BoxBlurRows(GrayImage image, int radiusX)
+    {
+        int w = image.Width, h = image.Height;
         var src = image.Pixels;
         var tmp = new byte[w * h];
-        if (radiusX > 0)
+        var n = 2 * radiusX + 1;
+        for (var y = 0; y < h; y++)
         {
-            var n = 2 * radiusX + 1;
-            for (var y = 0; y < h; y++)
+            int row = y * w, sum = 0;
+            for (var i = -radiusX; i <= radiusX; i++) sum += src[row + Clamp(i, 0, w - 1)];
+            for (var x = 0; x < w; x++)
             {
-                int row = y * w, sum = 0;
-                for (var i = -radiusX; i <= radiusX; i++) sum += src[row + Clamp(i, 0, w - 1)];
-                for (var x = 0; x < w; x++)
-                {
-                    tmp[row + x] = (byte)((sum + n / 2) / n);
-                    sum += src[row + Math.Min(w - 1, x + radiusX + 1)] - src[row + Math.Max(0, x - radiusX)];
-                }
+                tmp[row + x] = (byte)((sum + n / 2) / n);
+                sum += src[row + Math.Min(w - 1, x + radiusX + 1)] - src[row + Math.Max(0, x - radiusX)];
             }
         }
-        else
-        {
-            Buffer.BlockCopy(src, 0, tmp, 0, w * h);
-        }
-        if (radiusY <= 0) return new GrayImage(w, h, tmp);
+        return tmp;
+    }
 
+    private static byte[] BoxBlurColumns(byte[] tmp, int w, int h, int radiusY)
+    {
         var dst = new byte[w * h];
         var m = 2 * radiusY + 1;
         var sums = new int[w];
@@ -273,7 +298,7 @@ internal static class ImageFilters
                 sums[x] += tmp[add + x] - tmp[sub + x];
             }
         }
-        return new GrayImage(w, h, dst);
+        return dst;
     }
 
     /// <summary>Unsharp mask: steepens the soft edges of an out-of-focus or motion-blurred code.</summary>

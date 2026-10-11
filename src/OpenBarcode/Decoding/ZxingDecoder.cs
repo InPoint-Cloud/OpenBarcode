@@ -449,27 +449,14 @@ internal sealed class ZxingDecoder
     {
         var regions = RegionFinder.Find(image, MaxRegions);
         if (regions.Count <= 1 && found.Count > 0) yield break;
-        var seen = new HashSet<string>();
-        foreach (var h in found) seen.Add(h.Key);
+        var seen = new HashSet<string>(found.ConvertAll(h => h.Key));
         var taken = new List<RawHit>(found);
         var inImage = new List<RawHit>();
 
         foreach (var region in regions)
         {
             if (Covered(region, inImage) || (toImage.IsIdentity && Covered(region, taken))) continue;
-            var margin = Math.Max(8, Math.Max(region.Width, region.Height) / 4);
-            var (crop, ox, oy) = RegionFinder.Crop(image, region, margin);
-            // The crop keeps the page's resolution, so it only needs the quiet-zone padding, not an upscale.
-            var pad = PadFor(crop);
-            var cropMap = new Affine(1, 0, ox - pad, 0, 1, oy - pad);
-            var locals = Run(crop.Pad(pad), hybrid: true, cropMap, _centreSeekingFormats, multiple: false);
-            if (locals.Count == 0 && sampleDataMatrix && (_options.Formats & BarcodeFormat.DataMatrix) != 0
-                && DataMatrixSampler.Read(crop) is DataMatrixSampler.Result sampled)
-            {
-                var corners = Array.ConvertAll(sampled.Corners, p => new BarcodePoint(p.X + ox, p.Y + oy));
-                locals.Add(new RawHit(sampled.Text, BarcodeFormat.DataMatrix, sampled.RawBytes, corners));
-            }
-            foreach (var local in locals)
+            foreach (var local in DecodeRegion(image, region, sampleDataMatrix))
             {
                 inImage.Add(local);
                 var hit = local.Transform(toImage);
@@ -478,6 +465,24 @@ internal sealed class ZxingDecoder
             }
             if (!_options.ReadMultiple && taken.Count > found.Count) yield break;
         }
+    }
+
+    /// <summary>Looks for Data Matrix / Aztec in a crop around one region; hits are in <paramref name="image"/> coordinates.</summary>
+    private List<RawHit> DecodeRegion(GrayImage image, Region region, bool sampleDataMatrix)
+    {
+        var margin = Math.Max(8, Math.Max(region.Width, region.Height) / 4);
+        var (crop, ox, oy) = RegionFinder.Crop(image, region, margin);
+        // The crop keeps the page's resolution, so it only needs the quiet-zone padding, not an upscale.
+        var pad = PadFor(crop);
+        var cropMap = new Affine(1, 0, ox - pad, 0, 1, oy - pad);
+        var locals = Run(crop.Pad(pad), hybrid: true, cropMap, _centreSeekingFormats, multiple: false);
+        if (locals.Count == 0 && sampleDataMatrix && (_options.Formats & BarcodeFormat.DataMatrix) != 0
+            && DataMatrixSampler.Read(crop) is DataMatrixSampler.Result sampled)
+        {
+            var corners = Array.ConvertAll(sampled.Corners, p => new BarcodePoint(p.X + ox, p.Y + oy));
+            locals.Add(new RawHit(sampled.Text, BarcodeFormat.DataMatrix, sampled.RawBytes, corners));
+        }
+        return locals;
     }
 
     private static bool Covered(Region region, List<RawHit> hits)
@@ -519,28 +524,77 @@ internal sealed class ZxingDecoder
     private static bool IsFragmentOfKept(RawHit hit, List<Box> kept)
     {
         if ((hit.Format & FragmentProne) == 0 || hit.Points.Length != 2) return false;
-        foreach (var box in kept)
+        return kept.Exists(box => LiesAlong(hit, box.Hit));
+    }
+
+    /// <summary>Whether every point of <paramref name="hit"/> lies near the scan line of the 1D hit <paramref name="longer"/>.</summary>
+    private static bool LiesAlong(RawHit hit, RawHit longer)
+    {
+        if ((longer.Format & BarcodeFormat.AllLinear) == 0 || longer.Points.Length != 2) return false;
+        var a = longer.Points[0];
+        var b = longer.Points[1];
+        double dx = b.X - a.X, dy = b.Y - a.Y, length = Math.Sqrt(dx * dx + dy * dy);
+        if (length < 1) return false;
+        double ux = dx / length, uy = dy / length;
+        foreach (var p in hit.Points)
         {
-            var keptHit = box.Hit;
-            if ((keptHit.Format & BarcodeFormat.AllLinear) == 0 || keptHit.Points.Length != 2) continue;
-            var a = keptHit.Points[0];
-            var b = keptHit.Points[1];
-            double dx = b.X - a.X, dy = b.Y - a.Y, length = Math.Sqrt(dx * dx + dy * dy);
-            if (length < 1) continue;
-            double ux = dx / length, uy = dy / length;
-            var along = true;
-            foreach (var p in hit.Points)
-            {
-                var t = (p.X - a.X) * ux + (p.Y - a.Y) * uy;        // position along the longer code
-                var d = Math.Abs(-(p.X - a.X) * uy + (p.Y - a.Y) * ux); // distance from its scan line
-                if (t < -0.05 * length || t > 1.05 * length || d > 0.5 * length) { along = false; break; }
-            }
-            if (along) return true;
+            var t = (p.X - a.X) * ux + (p.Y - a.Y) * uy;        // position along the longer code
+            var d = Math.Abs(-(p.X - a.X) * uy + (p.Y - a.Y) * ux); // distance from its scan line
+            if (t < -0.05 * length || t > 1.05 * length || d > 0.5 * length) return false;
         }
-        return false;
+        return true;
     }
 
     private List<RawHit> Run(GrayImage image, bool hybrid, Affine map, IList<ZxFormat> formats, bool multiple)
+    {
+        var reader = CreateReader(hybrid, formats);
+        var source = new RGBLuminanceSource(image.Pixels, image.Width, image.Height, RGBLuminanceSource.BitmapFormat.Gray8);
+        if (!TryDecode(reader, source, multiple, out var results)) return [];
+
+        var hits = new List<RawHit>();
+        if (formats.Contains(ZxFormat.QR_CODE) && !ContainsQr(results))
+        {
+            var logo = ReadQrWithLogo(source, hybrid, map);
+            if (logo.HasValue) hits.Add(logo.Value);
+        }
+        if (results == null) return hits;
+        foreach (var r in results)
+        {
+            if (r == null || r.Text == null) continue;
+            var format = FromZxing(r.BarcodeFormat);
+            if (format == BarcodeFormat.None) continue;
+            hits.Add(new RawHit(r.Text, format, r.RawBytes, ToPoints(map, r.ResultPoints)));
+        }
+        return hits;
+    }
+
+    private static bool ContainsQr(Result[]? results) =>
+        results != null && !Array.TrueForAll(results, r => r?.BarcodeFormat != ZxFormat.QR_CODE);
+
+    /// <summary>Runs the reader; false when ZXing failed on the input (see <see cref="IsZxingFailure"/>).</summary>
+    private static bool TryDecode(BarcodeReaderGeneric reader, LuminanceSource source, bool multiple, out Result[]? results)
+    {
+        try
+        {
+            if (multiple)
+            {
+                results = reader.DecodeMultiple(source);
+            }
+            else
+            {
+                var single = reader.Decode(source);
+                results = single == null ? null : [single];
+            }
+            return true;
+        }
+        catch (Exception ex) when (IsZxingFailure(ex))
+        {
+            results = null;
+            return false;
+        }
+    }
+
+    private BarcodeReaderGeneric CreateReader(bool hybrid, IList<ZxFormat> formats)
     {
         var reader = new BarcodeReaderGeneric(null,
             hybrid ? (Func<LuminanceSource, Binarizer>)(s => new HybridBinarizer(s)) : s => new GlobalHistogramBinarizer(s),
@@ -556,42 +610,7 @@ internal sealed class ZxingDecoder
         reader.Options.PossibleFormats = formats;
         reader.Options.ReturnCodabarStartEnd = false;
         if (_options.CharacterSet != null) reader.Options.CharacterSet = _options.CharacterSet;
-
-        var source = new RGBLuminanceSource(image.Pixels, image.Width, image.Height, RGBLuminanceSource.BitmapFormat.Gray8);
-
-        Result[]? results;
-        try
-        {
-            if (multiple)
-            {
-                results = reader.DecodeMultiple(source);
-            }
-            else
-            {
-                var single = reader.Decode(source);
-                results = single == null ? null : [single];
-            }
-        }
-        catch (Exception ex) when (IsZxingFailure(ex))
-        {
-            return [];
-        }
-
-        var hits = new List<RawHit>();
-        if (formats.Contains(ZxFormat.QR_CODE) && (results == null || Array.TrueForAll(results, r => r?.BarcodeFormat != ZxFormat.QR_CODE)))
-        {
-            var logo = ReadQrWithLogo(source, hybrid, map);
-            if (logo.HasValue) hits.Add(logo.Value);
-        }
-        if (results == null) return hits;
-        foreach (var r in results)
-        {
-            if (r == null || r.Text == null) continue;
-            var format = FromZxing(r.BarcodeFormat);
-            if (format == BarcodeFormat.None) continue;
-            hits.Add(new RawHit(r.Text, format, r.RawBytes, ToPoints(map, r.ResultPoints)));
-        }
-        return hits;
+        return reader;
     }
 
     /// <summary>

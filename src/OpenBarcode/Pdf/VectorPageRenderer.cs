@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using InPoint.Cloud.OpenBarcode.Imaging;
 using UglyToad.PdfPig.Content;
 using UglyToad.PdfPig.Core;
@@ -18,15 +19,8 @@ internal static class VectorPageRenderer
 
     public static GrayImage? Render(Page page, int dpi, long maxPixels)
     {
-        var drawable = new List<PdfPath>();
-        var subpaths = 0;
-        foreach (var path in page.Paths)
-        {
-            if (!path.IsFilled && !path.IsStroked) continue;
-            drawable.Add(path);
-            subpaths += path.Count;
-        }
-        if (subpaths < MinSubpaths) return null;
+        var drawable = page.Paths.Where(path => path.IsFilled || path.IsStroked).ToList();
+        if (drawable.Sum(path => path.Count) < MinSubpaths) return null;
 
         var crop = page.CropBox.Bounds;
         double left = Math.Min(crop.Left, crop.Right), top = Math.Max(crop.Top, crop.Bottom);
@@ -34,17 +28,7 @@ internal static class VectorPageRenderer
         if (pageW < 1 || pageH < 1) return null;
 
         // Only rasterize the part of the page that has vector content, plus a margin for the quiet zone.
-        double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
-        foreach (var path in drawable)
-        {
-            var r = path.GetBoundingRectangle();
-            if (!r.HasValue) continue;
-            var b = r.Value;
-            minX = Math.Min(minX, Math.Min(b.Left, b.Right));
-            maxX = Math.Max(maxX, Math.Max(b.Left, b.Right));
-            minY = Math.Min(minY, Math.Min(b.Bottom, b.Top));
-            maxY = Math.Max(maxY, Math.Max(b.Bottom, b.Top));
-        }
+        var (minX, minY, maxX, maxY) = Bounds(drawable);
         if (minX > maxX) return null;
         const double margin = 18; // a quarter inch, in points
         var regionLeft = Math.Max(left, minX - margin);
@@ -73,20 +57,38 @@ internal static class VectorPageRenderer
                 rasterizer.Fill(contours, path.FillingRule == FillingRule.EvenOdd, fill);
             }
             if (path.IsStroked)
-            {
-                var stroke = ToGray(path.StrokeColor);
-                var lineWidth = path.LineWidth * scale;
-                for (var c = 0; c < contours.Count; c++)
-                {
-                    var contour = contours[c];
-                    for (var i = 0; i + 1 < contour.Count; i++)
-                        rasterizer.StrokeSegment(contour[i], contour[i + 1], lineWidth, stroke);
-                    if (closed[c] && contour.Count > 2)
-                        rasterizer.StrokeSegment(contour[contour.Count - 1], contour[0], lineWidth, stroke);
-                }
-            }
+                Stroke(rasterizer, contours, closed, path.LineWidth * scale, ToGray(path.StrokeColor));
         }
         return image;
+    }
+
+    /// <summary>The union of the paths' bounding boxes in page space; min above max when none has one.</summary>
+    private static (double MinX, double MinY, double MaxX, double MaxY) Bounds(List<PdfPath> paths)
+    {
+        double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+        foreach (var path in paths)
+        {
+            var r = path.GetBoundingRectangle();
+            if (!r.HasValue) continue;
+            var b = r.Value;
+            minX = Math.Min(minX, Math.Min(b.Left, b.Right));
+            maxX = Math.Max(maxX, Math.Max(b.Left, b.Right));
+            minY = Math.Min(minY, Math.Min(b.Bottom, b.Top));
+            maxY = Math.Max(maxY, Math.Max(b.Bottom, b.Top));
+        }
+        return (minX, minY, maxX, maxY);
+    }
+
+    private static void Stroke(PolygonRasterizer rasterizer, List<List<Point>> contours, List<bool> closed, double lineWidth, byte stroke)
+    {
+        for (var c = 0; c < contours.Count; c++)
+        {
+            var contour = contours[c];
+            for (var i = 0; i + 1 < contour.Count; i++)
+                rasterizer.StrokeSegment(contour[i], contour[i + 1], lineWidth, stroke);
+            if (closed[c] && contour.Count > 2)
+                rasterizer.StrokeSegment(contour[contour.Count - 1], contour[0], lineWidth, stroke);
+        }
     }
 
     private static byte ToGray(UglyToad.PdfPig.Graphics.Colors.IColor? color)

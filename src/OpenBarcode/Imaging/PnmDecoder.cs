@@ -18,40 +18,9 @@ internal static class PnmDecoder
         pos++; // single whitespace after the header
 
         var gray = new byte[checked(width * height)];
-        var wide = max > 255;
-        int Sample(ref int p)
-        {
-            if (kind <= '3') return ReadInt(data, ref p);
-            if (wide) { var v = (data[p] << 8) | data[p + 1]; p += 2; return v; }
-            return data[p++];
-        }
-        byte Scale(int v) => (byte)Math.Min(255, v * 255 / max);
-
         try
         {
-            switch (kind)
-            {
-                case '1':
-                    for (var i = 0; i < gray.Length; i++) gray[i] = ReadBit(data, ref pos) ? (byte)0 : (byte)255;
-                    break;
-                case '4':
-                    var rowBytes = (width + 7) / 8;
-                    for (var y = 0; y < height; y++)
-                        for (var x = 0; x < width; x++)
-                            gray[y * width + x] = (data[pos + y * rowBytes + x / 8] & (0x80 >> (x & 7))) != 0 ? (byte)0 : (byte)255;
-                    break;
-                case '2':
-                case '5':
-                    for (var i = 0; i < gray.Length; i++) gray[i] = Scale(Sample(ref pos));
-                    break;
-                default:
-                    for (var i = 0; i < gray.Length; i++)
-                    {
-                        int r = Scale(Sample(ref pos)), g = Scale(Sample(ref pos)), b = Scale(Sample(ref pos));
-                        gray[i] = GrayImage.Luma(r, g, b);
-                    }
-                    break;
-            }
+            ReadPixels(data, pos, kind, width, height, max, gray);
         }
         catch (IndexOutOfRangeException)
         {
@@ -59,6 +28,51 @@ internal static class PnmDecoder
         }
         return new GrayImage(width, height, gray);
     }
+
+    private static void ReadPixels(byte[] data, int pos, char kind, int width, int height, int max, byte[] gray)
+    {
+        switch (kind)
+        {
+            case '1':
+                for (var i = 0; i < gray.Length; i++) gray[i] = ReadBit(data, ref pos) ? (byte)0 : (byte)255;
+                break;
+            case '4':
+                ReadPackedBits(data, pos, width, height, gray);
+                break;
+            case '2':
+            case '5':
+                for (var i = 0; i < gray.Length; i++) gray[i] = Scale(Sample(data, ref pos, kind, max), max);
+                break;
+            default:
+                for (var i = 0; i < gray.Length; i++)
+                {
+                    int r = Scale(Sample(data, ref pos, kind, max), max);
+                    int g = Scale(Sample(data, ref pos, kind, max), max);
+                    int b = Scale(Sample(data, ref pos, kind, max), max);
+                    gray[i] = GrayImage.Luma(r, g, b);
+                }
+                break;
+        }
+    }
+
+    /// <summary>P4: one bit per pixel, rows padded to whole bytes, 1 = black.</summary>
+    private static void ReadPackedBits(byte[] data, int pos, int width, int height, byte[] gray)
+    {
+        var rowBytes = (width + 7) / 8;
+        for (var y = 0; y < height; y++)
+            for (var x = 0; x < width; x++)
+                gray[y * width + x] = (data[pos + y * rowBytes + x / 8] & (0x80 >> (x & 7))) != 0 ? (byte)0 : (byte)255;
+    }
+
+    /// <summary>One sample: a decimal number in the plain formats, one or (above 255) two bytes in the raw ones.</summary>
+    private static int Sample(byte[] data, ref int p, char kind, int max)
+    {
+        if (kind <= '3') return ReadInt(data, ref p);
+        if (max > 255) { var v = (data[p] << 8) | data[p + 1]; p += 2; return v; }
+        return data[p++];
+    }
+
+    private static byte Scale(int v, int max) => (byte)Math.Min(255, v * 255 / max);
 
     private static void SkipSpaceAndComments(byte[] d, ref int p)
     {

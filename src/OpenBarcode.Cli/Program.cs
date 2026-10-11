@@ -26,44 +26,19 @@ const string Usage = """
     Exit code: 0 when at least one barcode was found, 1 when none, 2 on errors.
     """;
 
-var options = new BarcodeReaderOptions();
-var files = new List<string>();
-bool json = false, verbose = false;
+CommandLine command;
 BarcodeReader reader;
 
 try
 {
-    for (var i = 0; i < args.Length; i++)
+    command = CommandLine.Parse(args);
+    if (command.Help)
     {
-        var a = args[i];
-        string Next() => ++i < args.Length ? args[i] : throw new ArgumentException($"{a} needs a value.");
-        switch (a)
-        {
-            case "-h" or "--help": Console.WriteLine(Usage); return 0;
-            case "-f" or "--formats": options.Formats = ParseFormats(Next()); break;
-            case "--json": json = true; break;
-            case "--fast": options.TryHarder = false; options.AutoRotate = false; options.TryInverted = false; options.EnhancePoorImages = false; break;
-            case "--first": options.ReadMultiple = false; break;
-            case "--no-enhance": options.EnhancePoorImages = false; break;
-            case "--dpi": options.PdfRenderDpi = ParseInt(Next()); break;
-            case "--pages":
-                var range = Next().Split('-');
-                options.PdfFirstPage = ParseInt(range[0]);
-                options.PdfLastPage = ParseInt(range.Length > 1 ? range[1] : range[0]);
-                break;
-            case "--no-images": options.PdfReadImages = false; break;
-            case "--no-vectors": options.PdfReadVectorGraphics = false; break;
-            case "--password": options.PdfPassword = Next(); break;
-            case "-v" or "--verbose": verbose = true; break;
-            default:
-                if (a.StartsWith('-') && a.Length > 1) throw new ArgumentException($"Unknown option {a}.");
-                files.Add(a);
-                break;
-        }
+        Console.WriteLine(Usage);
+        return 0;
     }
-    if (files.Count == 0) throw new ArgumentException("No input files.");
     // Validates the options, e.g. a --dpi out of range.
-    reader = new BarcodeReader(options);
+    reader = new BarcodeReader(command.Options);
 }
 catch (Exception ex) when (ex is ArgumentException or FormatException)
 {
@@ -75,43 +50,11 @@ catch (Exception ex) when (ex is ArgumentException or FormatException)
 var report = new List<object>();
 int found = 0, failed = 0;
 
-foreach (var file in files)
+foreach (var file in command.Files)
 {
-    var watch = Stopwatch.StartNew();
     try
     {
-        var data = File.ReadAllBytes(file);
-        var warnings = new List<string>();
-        var results = reader.Read(data, warnings);
-        found += results.Count;
-
-        if (verbose)
-        {
-            foreach (var w in warnings) Console.Error.WriteLine($"{file}: {w}");
-            Console.Error.WriteLine($"{file}: {results.Count} barcode(s) in {watch.ElapsedMilliseconds} ms");
-        }
-
-        foreach (var r in results)
-        {
-            if (json)
-            {
-                report.Add(new
-                {
-                    file,
-                    page = r.PageNumber,
-                    frame = r.FrameIndex,
-                    format = r.Format.ToString(),
-                    source = r.Source.ToString(),
-                    text = r.Text,
-                    points = r.Points.Select(p => new[] { p.X, p.Y }),
-                });
-            }
-            else
-            {
-                var where = r.PageNumber.HasValue ? $"{file}:{r.PageNumber}" : r.FrameIndex.HasValue ? $"{file}#{r.FrameIndex}" : file;
-                Console.WriteLine($"{where}\t{r.Format}\t{r.Text}");
-            }
-        }
+        found += ReadFile(reader, file, command, report);
     }
     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or InvalidDataException
                                    or UglyToad.PdfPig.Core.PdfDocumentFormatException)
@@ -121,35 +64,140 @@ foreach (var file in files)
     }
 }
 
-if (json)
+if (command.Json)
     Console.WriteLine(JsonSerializer.Serialize(report, JsonOptions.Indented));
 
-return failed > 0 ? 2 : found > 0 ? 0 : 1;
+if (failed > 0) return 2;
+return found > 0 ? 0 : 1;
 
-static int ParseInt(string value) => int.Parse(value, NumberStyles.Integer, CultureInfo.InvariantCulture);
-
-static BarcodeFormat ParseFormats(string list)
+/// <summary>Reads one file and prints its barcodes, or adds them to the JSON report.</summary>
+/// <returns>The number of barcodes found.</returns>
+static int ReadFile(BarcodeReader reader, string file, CommandLine command, List<object> report)
 {
-    var result = BarcodeFormat.None;
-    foreach (var raw in list.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+    var watch = Stopwatch.StartNew();
+    var data = File.ReadAllBytes(file);
+    var warnings = new List<string>();
+    var results = reader.Read(data, warnings);
+
+    if (command.Verbose)
     {
-        var name = raw.Replace("-", "").Replace("_", "").ToLowerInvariant();
-        result |= name switch
-        {
-            "all" => BarcodeFormat.All,
-            "default" => BarcodeFormat.Default,
-            "linear" or "1d" => BarcodeFormat.AllLinear & ~BarcodeFormat.Msi,
-            "2d" => BarcodeFormat.All2D,
-            "qr" => BarcodeFormat.QrCode,
-            "ean" => BarcodeFormat.Ean13 | BarcodeFormat.Ean8,
-            "upc" => BarcodeFormat.UpcA | BarcodeFormat.UpcE,
-            "gs1128" => BarcodeFormat.Code128,
-            _ => Enum.TryParse<BarcodeFormat>(name, ignoreCase: true, out var f) && f != BarcodeFormat.None
-                ? f
-                : throw new ArgumentException($"Unknown format '{raw}'."),
-        };
+        foreach (var w in warnings) Console.Error.WriteLine($"{file}: {w}");
+        Console.Error.WriteLine($"{file}: {results.Count} barcode(s) in {watch.ElapsedMilliseconds} ms");
     }
-    return result;
+
+    foreach (var r in results)
+    {
+        if (command.Json)
+            report.Add(ToJson(file, r));
+        else
+            Console.WriteLine($"{Where(file, r)}\t{r.Format}\t{r.Text}");
+    }
+    return results.Count;
+}
+
+static object ToJson(string file, BarcodeResult r) => new
+{
+    file,
+    page = r.PageNumber,
+    frame = r.FrameIndex,
+    format = r.Format.ToString(),
+    source = r.Source.ToString(),
+    text = r.Text,
+    points = r.Points.Select(p => new[] { p.X, p.Y }),
+};
+
+/// <summary>The file, with the page or frame the barcode is on when there is one.</summary>
+static string Where(string file, BarcodeResult r)
+{
+    if (r.PageNumber.HasValue) return $"{file}:{r.PageNumber}";
+    if (r.FrameIndex.HasValue) return $"{file}#{r.FrameIndex}";
+    return file;
+}
+
+/// <summary>The parsed command line.</summary>
+internal sealed class CommandLine
+{
+    public BarcodeReaderOptions Options { get; } = new();
+
+    public List<string> Files { get; } = [];
+
+    public bool Json { get; private set; }
+
+    public bool Verbose { get; private set; }
+
+    /// <summary>Whether help was asked for; the remaining arguments are then left unparsed.</summary>
+    public bool Help { get; private set; }
+
+    public static CommandLine Parse(string[] args)
+    {
+        var command = new CommandLine();
+        for (var i = 0; i < args.Length; i++)
+        {
+            var a = args[i];
+            string Next() => ++i < args.Length ? args[i] : throw new ArgumentException($"{a} needs a value.");
+            command.Apply(a, Next);
+            if (command.Help) return command;
+        }
+        if (command.Files.Count == 0) throw new ArgumentException("No input files.");
+        return command;
+    }
+
+    /// <summary>Applies one argument; <paramref name="next"/> consumes the option's value.</summary>
+    private void Apply(string a, Func<string> next)
+    {
+        switch (a)
+        {
+            case "-h" or "--help": Help = true; break;
+            case "-f" or "--formats": Options.Formats = ParseFormats(next()); break;
+            case "--json": Json = true; break;
+            case "--fast": Options.TryHarder = false; Options.AutoRotate = false; Options.TryInverted = false; Options.EnhancePoorImages = false; break;
+            case "--first": Options.ReadMultiple = false; break;
+            case "--no-enhance": Options.EnhancePoorImages = false; break;
+            case "--dpi": Options.PdfRenderDpi = ParseInt(next()); break;
+            case "--pages": ParsePages(next()); break;
+            case "--no-images": Options.PdfReadImages = false; break;
+            case "--no-vectors": Options.PdfReadVectorGraphics = false; break;
+            case "--password": Options.PdfPassword = next(); break;
+            case "-v" or "--verbose": Verbose = true; break;
+            default:
+                if (a.StartsWith('-') && a.Length > 1) throw new ArgumentException($"Unknown option {a}.");
+                Files.Add(a);
+                break;
+        }
+    }
+
+    private void ParsePages(string value)
+    {
+        var range = value.Split('-');
+        Options.PdfFirstPage = ParseInt(range[0]);
+        Options.PdfLastPage = ParseInt(range.Length > 1 ? range[1] : range[0]);
+    }
+
+    private static int ParseInt(string value) => int.Parse(value, NumberStyles.Integer, CultureInfo.InvariantCulture);
+
+    private static BarcodeFormat ParseFormats(string list)
+    {
+        var result = BarcodeFormat.None;
+        foreach (var raw in list.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var name = raw.Replace("-", "").Replace("_", "").ToLowerInvariant();
+            result |= name switch
+            {
+                "all" => BarcodeFormat.All,
+                "default" => BarcodeFormat.Default,
+                "linear" or "1d" => BarcodeFormat.AllLinear & ~BarcodeFormat.Msi,
+                "2d" => BarcodeFormat.All2D,
+                "qr" => BarcodeFormat.QrCode,
+                "ean" => BarcodeFormat.Ean13 | BarcodeFormat.Ean8,
+                "upc" => BarcodeFormat.UpcA | BarcodeFormat.UpcE,
+                "gs1128" => BarcodeFormat.Code128,
+                _ => Enum.TryParse<BarcodeFormat>(name, ignoreCase: true, out var f) && f != BarcodeFormat.None
+                    ? f
+                    : throw new ArgumentException($"Unknown format '{raw}'."),
+            };
+        }
+        return result;
+    }
 }
 
 internal static class JsonOptions

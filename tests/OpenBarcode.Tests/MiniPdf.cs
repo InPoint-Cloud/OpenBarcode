@@ -25,23 +25,26 @@ internal sealed class MiniPdf
         /// <summary>Draws a barcode as filled rectangles, one per run of black modules.</summary>
         public PageBuilder FilledBarcode(BitMatrix m, double x, double y, double module, double barHeight = 50, bool singlePath = false)
         {
-            var linear = m.Height == 1;
             Op("0 g");
             for (var row = 0; row < m.Height; row++)
-            {
-                for (var col = 0; col < m.Width;)
-                {
-                    if (!m[col, row]) { col++; continue; }
-                    var start = col;
-                    while (col < m.Width && m[col, row]) col++;
-                    double rx = x + start * module, rw = (col - start) * module;
-                    var ry = linear ? y : y + (m.Height - 1 - row) * module;
-                    var rh = linear ? barHeight : module;
-                    Op(F($"{rx} {ry} {rw} {rh} re") + (singlePath ? "" : " f"));
-                }
-            }
+                FilledRow(m, row, x, y, module, barHeight, singlePath);
             if (singlePath) Op("f");
             return this;
+        }
+
+        private void FilledRow(BitMatrix m, int row, double x, double y, double module, double barHeight, bool singlePath)
+        {
+            var linear = m.Height == 1;
+            for (var col = 0; col < m.Width;)
+            {
+                if (!m[col, row]) { col++; continue; }
+                var start = col;
+                while (col < m.Width && m[col, row]) col++;
+                double rx = x + start * module, rw = (col - start) * module;
+                var ry = linear ? y : y + (m.Height - 1 - row) * module;
+                var rh = linear ? barHeight : module;
+                Op(F($"{rx} {ry} {rw} {rh} re") + (singlePath ? "" : " f"));
+            }
         }
 
         /// <summary>Draws a 1D barcode as stroked vertical lines, one per module column.</summary>

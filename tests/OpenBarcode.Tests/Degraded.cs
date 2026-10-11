@@ -59,10 +59,16 @@ internal sealed class Degraded
         for (var y = 0; y < rows; y++)
             for (var x = 0; x < m.Width; x++)
                 if (m[x, linear ? 0 : y])
-                    for (var yy = 0; yy < Oversample; yy++)
-                        for (var xx = 0; xx < Oversample; xx++)
-                            px[((y + quiet) * Oversample + yy) * w + (x + quiet) * Oversample + xx] = 0f;
+                    PaintModule(px, w, (x + quiet) * Oversample, (y + quiet) * Oversample);
         return (px, w, h);
+    }
+
+    /// <summary>Inks one module, <see cref="Oversample"/> pixels square, with its top left corner at (left, top).</summary>
+    private static void PaintModule(float[] px, int w, int left, int top)
+    {
+        for (var yy = 0; yy < Oversample; yy++)
+            for (var xx = 0; xx < Oversample; xx++)
+                px[(top + yy) * w + left + xx] = 0f;
     }
 
     /// <summary>A Swiss-cross style logo: a white frame around a dark square with a white cross, centred.</summary>

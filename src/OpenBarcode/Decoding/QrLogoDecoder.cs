@@ -48,27 +48,16 @@ internal static class QrLogoDecoder
         var moduleBit = new int[dimension, dimension];
         var total = version.TotalCodewords;
         var bitsRead = 0;
-        var up = true;
-        for (var j = dimension - 1; j > 0; j -= 2)
+        foreach (var (x, y) in ReadingOrder(dimension))
         {
-            if (j == 6) j--;
-            for (var count = 0; count < dimension; count++)
+            moduleCodeword[x, y] = -1;
+            if (function[x, y]) continue;
+            if (bitsRead / 8 < total)
             {
-                var y = up ? dimension - 1 - count : count;
-                for (var col = 0; col < 2; col++)
-                {
-                    var x = j - col;
-                    moduleCodeword[x, y] = -1;
-                    if (function[x, y]) continue;
-                    if (bitsRead / 8 < total)
-                    {
-                        moduleCodeword[x, y] = bitsRead / 8;
-                        moduleBit[x, y] = 7 - bitsRead % 8;
-                    }
-                    bitsRead++;
-                }
+                moduleCodeword[x, y] = bitsRead / 8;
+                moduleBit[x, y] = 7 - bitsRead % 8;
             }
-            up = !up;
+            bitsRead++;
         }
 
         // Blur near the finder patterns can garble the format information beyond what its own code corrects.
@@ -82,81 +71,41 @@ internal static class QrLogoDecoder
         return null;
     }
 
+    /// <summary>
+    /// Module positions in the order their bits are read: two-column strips from the right, alternately
+    /// upwards and downwards, skipping the vertical timing pattern.
+    /// </summary>
+    private static IEnumerable<(int X, int Y)> ReadingOrder(int dimension)
+    {
+        var up = true;
+        for (var j = dimension - 1; j > 0; j -= 2)
+        {
+            if (j == 6) j--;
+            for (var count = 0; count < dimension; count++)
+            {
+                var y = up ? dimension - 1 - count : count;
+                for (var col = 0; col < 2; col++) yield return (j - col, y);
+            }
+            up = !up;
+        }
+    }
+
     private static DecoderResult? Decode(BitMatrix grid, QrVersion version, int[,] moduleCodeword, int[,] moduleBit, ErrorCorrectionLevel level, int mask,
         IDictionary<DecodeHintType, object>? hints)
     {
         int dimension = grid.Height, total = version.TotalCodewords;
-        var raw = new int[total];
-        for (var y = 0; y < dimension; y++)
-            for (var x = 0; x < dimension; x++)
-                if (moduleCodeword[x, y] >= 0 && grid[x, y] ^ Masked(mask, y, x))
-                    raw[moduleCodeword[x, y]] |= 1 << moduleBit[x, y];
-
-        // De-interleave into blocks exactly as ZXing's DataBlock does: data codewords round-robin (longer blocks
-        // get one extra at the end), then check codewords round-robin.
-        var ecBlocks = version.getECBlocksForLevel(level);
-        var checkCount = ecBlocks.ECCodewordsPerBlock;
-        var blockSizes = new List<int>();
-        foreach (var ecb in ecBlocks.getECBlocks())
-            for (var i = 0; i < ecb.Count; i++) blockSizes.Add(ecb.DataCodewords + checkCount);
-        var blocks = blockSizes.Count;
-        var place = new (int Block, int Position)[total];
-        int shortData = blockSizes[0] - checkCount, offset = 0;
-        for (var i = 0; i < shortData; i++)
-            for (var b = 0; b < blocks; b++) place[offset++] = (b, i);
-        for (var b = 0; b < blocks; b++)
-            if (blockSizes[b] - checkCount > shortData) place[offset++] = (b, shortData);
-        for (var i = 0; i < checkCount; i++)
-            for (var b = 0; b < blocks; b++) place[offset++] = (b, blockSizes[b] - checkCount + i);
-        if (offset != total) return null;
+        var raw = ReadCodewords(grid, total, moduleCodeword, moduleBit, mask);
+        var layout = BlockLayout.Create(version.getECBlocksForLevel(level), total);
+        if (layout == null) return null;
 
         foreach (var side in LogoSides)
         {
-            double lo = dimension * (1 - side) / 2, hi = dimension * (1 + side) / 2;
-            var erased = new bool[total];
-            for (var y = (int)lo; y < Math.Ceiling(hi); y++)
-                for (var x = (int)lo; x < Math.Ceiling(hi); x++)
-                    if (moduleCodeword[x, y] >= 0) erased[moduleCodeword[x, y]] = true;
-
-            var blockWords = new int[blocks][];
-            var blockErasures = new List<int>[blocks];
-            for (var b = 0; b < blocks; b++)
-            {
-                blockWords[b] = new int[blockSizes[b]];
-                blockErasures[b] = [];
-            }
-            for (var i = 0; i < total; i++)
-            {
-                var (b, p) = place[i];
-                blockWords[b][p] = raw[i];
-                if (erased[i]) blockErasures[b].Add(p);
-            }
-
-            var ok = true;
-            var totalSpare = 0;
-            for (var b = 0; b < blocks && ok; b++)
-            {
-                // Leave a couple of check codewords per block to catch a wrong correction.
-                var spare = 0;
-                ok = blockErasures[b].Count <= checkCount - 2
-                    && ReedSolomonErasures.Decode(blockWords[b], checkCount, [.. blockErasures[b]], out spare)
-                    && spare >= 1;
-                totalSpare += spare;
-            }
-            if (!ok || totalSpare < MinTotalSpare) continue;
+            var blockWords = layout.Correct(raw, Erased(dimension, side, moduleCodeword, total));
+            if (blockWords == null) continue;
 
             // Write the corrected codewords back into the grid and let ZXing's decoder, which now finds no
             // errors, parse the contents.
-            var repaired = (BitMatrix)grid.Clone();
-            for (var y = 0; y < dimension; y++)
-                for (var x = 0; x < dimension; x++)
-                {
-                    var index = moduleCodeword[x, y];
-                    if (index < 0) continue;
-                    var (b, p) = place[index];
-                    var bit = ((blockWords[b][p] >> moduleBit[x, y]) & 1) != 0;
-                    repaired[x, y] = bit ^ Masked(mask, y, x);
-                }
+            var repaired = Repair(grid, moduleCodeword, moduleBit, layout, blockWords, mask);
             WriteFormat(repaired, (level.Bits << 3) | mask);
             try
             {
@@ -171,6 +120,121 @@ internal static class QrLogoDecoder
             return null;
         }
         return null;
+    }
+
+    /// <summary>The raw codewords, with the data mask removed.</summary>
+    private static int[] ReadCodewords(BitMatrix grid, int total, int[,] moduleCodeword, int[,] moduleBit, int mask)
+    {
+        var dimension = grid.Height;
+        var raw = new int[total];
+        for (var y = 0; y < dimension; y++)
+            for (var x = 0; x < dimension; x++)
+                if (moduleCodeword[x, y] >= 0 && grid[x, y] ^ Masked(mask, y, x))
+                    raw[moduleCodeword[x, y]] |= 1 << moduleBit[x, y];
+        return raw;
+    }
+
+    /// <summary>Which raw codewords have a module inside the centred square of the given share of the side.</summary>
+    private static bool[] Erased(int dimension, double side, int[,] moduleCodeword, int total)
+    {
+        double lo = dimension * (1 - side) / 2, hi = dimension * (1 + side) / 2;
+        var erased = new bool[total];
+        for (var y = (int)lo; y < Math.Ceiling(hi); y++)
+            for (var x = (int)lo; x < Math.Ceiling(hi); x++)
+                if (moduleCodeword[x, y] >= 0) erased[moduleCodeword[x, y]] = true;
+        return erased;
+    }
+
+    /// <summary>A copy of the grid holding the corrected codewords, masked again.</summary>
+    private static BitMatrix Repair(BitMatrix grid, int[,] moduleCodeword, int[,] moduleBit, BlockLayout layout, int[][] blockWords, int mask)
+    {
+        var dimension = grid.Height;
+        var repaired = (BitMatrix)grid.Clone();
+        for (var y = 0; y < dimension; y++)
+            for (var x = 0; x < dimension; x++)
+            {
+                var index = moduleCodeword[x, y];
+                if (index < 0) continue;
+                var (b, p) = layout.Place[index];
+                var bit = ((blockWords[b][p] >> moduleBit[x, y]) & 1) != 0;
+                repaired[x, y] = bit ^ Masked(mask, y, x);
+            }
+        return repaired;
+    }
+
+    /// <summary>How the raw codewords are interleaved across the error correction blocks.</summary>
+    private sealed class BlockLayout
+    {
+        private BlockLayout(List<int> sizes, int checkCount, (int Block, int Position)[] place)
+        {
+            Sizes = sizes;
+            CheckCount = checkCount;
+            Place = place;
+        }
+
+        /// <summary>Codewords per block, data and check together.</summary>
+        public List<int> Sizes { get; }
+
+        public int CheckCount { get; }
+
+        /// <summary>Block and position within it of each raw codeword.</summary>
+        public (int Block, int Position)[] Place { get; }
+
+        /// <summary>
+        /// De-interleaves into blocks exactly as ZXing's DataBlock does: data codewords round-robin (longer
+        /// blocks get one extra at the end), then check codewords round-robin. Null when the counts disagree.
+        /// </summary>
+        public static BlockLayout? Create(QrVersion.ECBlocks ecBlocks, int total)
+        {
+            var checkCount = ecBlocks.ECCodewordsPerBlock;
+            var blockSizes = new List<int>();
+            foreach (var ecb in ecBlocks.getECBlocks())
+                for (var i = 0; i < ecb.Count; i++) blockSizes.Add(ecb.DataCodewords + checkCount);
+            var blocks = blockSizes.Count;
+            var place = new (int Block, int Position)[total];
+            int shortData = blockSizes[0] - checkCount, offset = 0;
+            for (var i = 0; i < shortData; i++)
+                for (var b = 0; b < blocks; b++) place[offset++] = (b, i);
+            for (var b = 0; b < blocks; b++)
+                if (blockSizes[b] - checkCount > shortData) place[offset++] = (b, shortData);
+            for (var i = 0; i < checkCount; i++)
+                for (var b = 0; b < blocks; b++) place[offset++] = (b, blockSizes[b] - checkCount + i);
+            return offset == total ? new BlockLayout(blockSizes, checkCount, place) : null;
+        }
+
+        /// <summary>
+        /// Splits the raw codewords into blocks and corrects each, treating the erased codewords as unknown.
+        /// Null unless every block corrects with check codewords to spare.
+        /// </summary>
+        public int[][]? Correct(int[] raw, bool[] erased)
+        {
+            var blocks = Sizes.Count;
+            var blockWords = new int[blocks][];
+            var blockErasures = new List<int>[blocks];
+            for (var b = 0; b < blocks; b++)
+            {
+                blockWords[b] = new int[Sizes[b]];
+                blockErasures[b] = [];
+            }
+            for (var i = 0; i < raw.Length; i++)
+            {
+                var (b, p) = Place[i];
+                blockWords[b][p] = raw[i];
+                if (erased[i]) blockErasures[b].Add(p);
+            }
+
+            var totalSpare = 0;
+            for (var b = 0; b < blocks; b++)
+            {
+                // Leave a couple of check codewords per block to catch a wrong correction.
+                if (blockErasures[b].Count > CheckCount - 2
+                    || !ReedSolomonErasures.Decode(blockWords[b], CheckCount, [.. blockErasures[b]], out var spare)
+                    || spare < 1)
+                    return null;
+                totalSpare += spare;
+            }
+            return totalSpare >= MinTotalSpare ? blockWords : null;
+        }
     }
 
     /// <summary>
@@ -253,11 +317,7 @@ internal static class QrLogoDecoder
     private static bool[,] FunctionPattern(QrVersion version, int dimension)
     {
         var function = new bool[dimension, dimension];
-        void Region(int left, int top, int width, int height)
-        {
-            for (var y = top; y < top + height; y++)
-                for (var x = left; x < left + width; x++) function[x, y] = true;
-        }
+        void Region(int left, int top, int width, int height) => Fill(function, left, top, width, height);
         Region(0, 0, 9, 9);
         Region(dimension - 8, 0, 8, 9);
         Region(0, dimension - 8, 9, 8);
@@ -266,8 +326,7 @@ internal static class QrLogoDecoder
         for (var x = 0; x < max; x++)
             for (var y = 0; y < max; y++)
             {
-                if ((x == 0 && y == 0) || (x == 0 && y == max - 1) || (x == max - 1 && y == 0)) continue;
-                Region(centres[y] - 2, centres[x] - 2, 5, 5);
+                if (!OverlapsFinder(x, y, max)) Region(centres[y] - 2, centres[x] - 2, 5, 5);
             }
         Region(6, 9, 1, dimension - 17);
         Region(9, 6, dimension - 17, 1);
@@ -277,5 +336,15 @@ internal static class QrLogoDecoder
             Region(0, dimension - 11, 6, 3);
         }
         return function;
+    }
+
+    /// <summary>Whether the alignment pattern at grid position (x, y) would sit on a finder pattern.</summary>
+    private static bool OverlapsFinder(int x, int y, int max) =>
+        (x == 0 && y == 0) || (x == 0 && y == max - 1) || (x == max - 1 && y == 0);
+
+    private static void Fill(bool[,] modules, int left, int top, int width, int height)
+    {
+        for (var y = top; y < top + height; y++)
+            for (var x = left; x < left + width; x++) modules[x, y] = true;
     }
 }
