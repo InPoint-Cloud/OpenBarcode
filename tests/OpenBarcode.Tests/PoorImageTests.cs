@@ -93,6 +93,7 @@ public class PoorImageTests
 
         var hit = Reader.Read(image).Should().ContainSingle().Subject;
 
+        using var scope = new AssertionScope();
         hit.Points.Should().NotBeEmpty();
         // The symbol sits in the middle of the canvas; points mapped wrongly would land far off or outside.
         foreach (var p in hit.Points)

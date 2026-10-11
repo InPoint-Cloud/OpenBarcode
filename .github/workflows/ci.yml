@@ -20,7 +20,23 @@ jobs:
             8.0.x
             10.0.x
       - run: dotnet build -c Release
-      - run: dotnet test -c Release --no-build
+      - run: >
+          dotnet test -c Release --no-build
+          --results-directory "${{ github.workspace }}/TestResults"
+          --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml
+      - if: matrix.os == 'ubuntu-latest'
+        name: Coverage summary
+        run: |
+          rates=$(grep -m1 -o '<coverage line-rate="[^"]*" branch-rate="[^"]*"' TestResults/coverage.cobertura.xml)
+          line=$(sed -E 's/.*line-rate="([^"]*)".*/\1/' <<< "$rates")
+          branch=$(sed -E 's/.*branch-rate="([^"]*)".*/\1/' <<< "$rates")
+          printf '### Code coverage\n\n| Lines | Branches |\n|---|---|\n| %.1f%% | %.1f%% |\n' \
+            "$(bc -l <<< "$line*100")" "$(bc -l <<< "$branch*100")" >> "$GITHUB_STEP_SUMMARY"
+      - if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: TestResults/coverage.cobertura.xml
       - if: matrix.os == 'ubuntu-latest'
         run: dotnet pack -c Release --no-build -o artifacts
       - if: matrix.os == 'ubuntu-latest'

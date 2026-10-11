@@ -24,6 +24,7 @@ public class PdfTests
 
         var hit = Reader.Read(pdf).Should().ContainSingle().Subject;
 
+        using var scope = new AssertionScope();
         hit.Text.Should().Be("VECTOR-128");
         hit.Format.Should().Be(BarcodeFormat.Code128);
         hit.Source.Should().Be(BarcodeSource.PdfVector);
@@ -46,6 +47,7 @@ public class PdfTests
         var pdf = SinglePage((_, page) => page.StrokedBarcode(matrix, 100, 500, module: 1.2));
 
         var hit = Reader.Read(pdf).Should().ContainSingle().Subject;
+        using var scope = new AssertionScope();
         hit.Text.Should().Be("4006381333931");
         hit.Format.Should().Be(BarcodeFormat.Ean13);
     }
@@ -73,6 +75,7 @@ public class PdfTests
         });
 
         var hit = Reader.Read(pdf).Should().ContainSingle().Subject;
+        using var scope = new AssertionScope();
         hit.Text.Should().Be("flate image");
         hit.Source.Should().Be(BarcodeSource.PdfImage);
     }
@@ -140,8 +143,11 @@ public class PdfTests
         var data = pdf.Build();
 
         var results = Reader.Read(data);
-        results.Select(r => r.Text).Should().Equal(PdfPageTexts);
-        results.Select(r => r.PageNumber).Should().Equal(new int?[] { 1, 2, 3 });
+        using (new AssertionScope())
+        {
+            results.Select(r => r.Text).Should().Equal(PdfPageTexts);
+            results.Select(r => r.PageNumber).Should().Equal(new int?[] { 1, 2, 3 });
+        }
 
         var onlySecond = new BarcodeReader(new BarcodeReaderOptions { PdfFirstPage = 2, PdfLastPage = 2 });
         onlySecond.Read(data).Should().ContainSingle().Which.Text.Should().Be("page 2");
@@ -176,6 +182,7 @@ public class PdfTests
 
         var results = Reader.ReadPdf(pdf, warnings);
 
+        using var scope = new AssertionScope();
         results.Should().BeEmpty();
         warnings.Should().Contain(w => w.Contains("JPEG 2000"));
     }

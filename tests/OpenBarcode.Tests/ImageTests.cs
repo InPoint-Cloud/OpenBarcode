@@ -30,6 +30,7 @@ public class ImageTests
         var results = Reader.Read(png);
 
         var hit = results.Should().ContainSingle().Subject;
+        using var scope = new AssertionScope();
         hit.Format.Should().Be(expected);
         hit.Text.Should().Be(expected == BarcodeFormat.Codabar ? text.Trim('A', 'B') : text);
         hit.Source.Should().Be(BarcodeSource.Image);
@@ -88,6 +89,7 @@ public class ImageTests
 
         var results = Reader.Read(tiff);
 
+        using var scope = new AssertionScope();
         results.Select(r => r.Text).Should().Equal(TiffPageTexts);
         results.Select(r => r.FrameIndex).Should().Equal(new int?[] { 0, 1, 2 });
     }

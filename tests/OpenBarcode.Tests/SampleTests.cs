@@ -33,6 +33,8 @@ public class SampleTests
             .Where(r => (r.PageNumber ?? r.FrameIndex + 1) == index)
             .Select(r => $"{r.Format} {r.Text}")
             .OrderBy(s => s, StringComparer.Ordinal)];
+
+        using var scope = new AssertionScope();
         Page(1).Should().Equal(Page1.OrderBy(s => s, StringComparer.Ordinal));
         Page(2).Should().Equal(Page2.OrderBy(s => s, StringComparer.Ordinal));
     }
