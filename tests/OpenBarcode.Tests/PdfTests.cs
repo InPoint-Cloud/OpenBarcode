@@ -1,5 +1,3 @@
-using System.Text;
-using Xunit;
 using ZxFormat = ZXing.BarcodeFormat;
 
 namespace InPoint.Cloud.OpenBarcode.Tests;

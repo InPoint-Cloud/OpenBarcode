@@ -1,5 +1,4 @@
 using InPoint.Cloud.OpenBarcode.Imaging;
-using Xunit;
 using ZxFormat = ZXing.BarcodeFormat;
 
 namespace InPoint.Cloud.OpenBarcode.Tests;

@@ -1,5 +1,3 @@
-using System;
-
 namespace InPoint.Cloud.OpenBarcode.Decoding;
 
 /// <summary>

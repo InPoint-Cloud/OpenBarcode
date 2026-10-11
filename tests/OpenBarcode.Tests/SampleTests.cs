@@ -1,5 +1,3 @@
-using Xunit;
-
 namespace InPoint.Cloud.OpenBarcode.Tests;
 
 /// <summary>
