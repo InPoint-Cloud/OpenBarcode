@@ -142,6 +142,9 @@ namespace InPoint.Cloud.OpenBarcode.Decoding
             BarcodeFormat.UpcA | BarcodeFormat.Codabar | BarcodeFormat.Itf | BarcodeFormat.Msi |
             BarcodeFormat.DataBar | BarcodeFormat.DataBarExpanded;
 
+        /// <summary>Weakly checked codes long enough that a second read of the same picture confirms them.</summary>
+        private const BarcodeFormat LongRetail = BarcodeFormat.Ean13 | BarcodeFormat.UpcA;
+
         /// <summary>
         /// Clean-up passes for photos and poor scans, tried one after another until one finds something
         /// trustworthy: lighting correction, deskewing, adaptive thresholding, denoising, sharpening and, for 1D
@@ -149,7 +152,7 @@ namespace InPoint.Cloud.OpenBarcode.Decoding
         /// </summary>
         private List<RawHit> DecodeEnhanced(GrayImage image, Ballot ballot)
         {
-            foreach (var hits in EnhancedPasses(image))
+            foreach (var hits in EnhancedPasses(image, ballot))
             {
                 ballot.Add(hits);
                 var trusted = ballot.Trusted(hits);
@@ -208,7 +211,7 @@ namespace InPoint.Cloud.OpenBarcode.Decoding
             }
         }
 
-        private IEnumerable<List<RawHit>> EnhancedPasses(GrayImage image)
+        private IEnumerable<List<RawHit>> EnhancedPasses(GrayImage image, Ballot ballot)
         {
             // Large scans and photos are cleaned up at half size: averaging pixels already removes noise, and the
             // passes cost a quarter of the time, which matters on pages that hold no barcode at all.
@@ -222,7 +225,7 @@ namespace InPoint.Cloud.OpenBarcode.Decoding
             int maxSide = Math.Max(work.Width, work.Height);
 
             var normalized = ImageFilters.NormalizeLighting(work);
-            yield return DecodeVariant(normalized, toImage);
+            yield return DecodeVariant(normalized, toImage, ballot);
 
             // ZXing's Aztec and PDF417 detectors give up beyond about 10 degrees of tilt, and 1D readers beyond
             // about 15. Turn the picture so the symbol's edges line up with the axes.
@@ -230,15 +233,15 @@ namespace InPoint.Cloud.OpenBarcode.Decoding
             if (Math.Abs(tilt) >= MinDeskewAngle && confidence >= MinDeskewConfidence)
             {
                 var level = ImageFilters.Rotate(normalized, -tilt, out var toWork);
-                yield return DecodeVariant(level, toImage.After(toWork));
+                yield return DecodeVariant(level, toImage.After(toWork), ballot);
             }
 
             // A window a few modules wide: wide enough to span the widest bar, small enough to follow shadows.
             int window = Clamp(maxSide / 20, 15, 81);
-            yield return DecodeVariant(ImageFilters.AdaptiveThreshold(normalized, window), toImage);
+            yield return DecodeVariant(ImageFilters.AdaptiveThreshold(normalized, window), toImage, ballot);
 
             // Sensor noise, JPEG artefacts and specks.
-            yield return DecodeVariant(ImageFilters.GaussianBlur(ImageFilters.Median3(normalized), 1.0), toImage);
+            yield return DecodeVariant(ImageFilters.GaussianBlur(ImageFilters.Median3(normalized), 1.0), toImage, ballot);
 
             if (_linearFormats.Count > 0)
             {
@@ -247,16 +250,19 @@ namespace InPoint.Cloud.OpenBarcode.Decoding
                 int pad = PadFor(work);
                 var upright = ImageFilters.BoxBlur(normalized, 0, along).Pad(pad);
                 var hits = Run(upright, hybrid: true, toImage.After(Map(1, pad)), _linearFormats, _options.ReadMultiple);
+                Recheck(upright, toImage.After(Map(1, pad)), hits, ballot, rotated: false);
                 if (_options.AutoRotate)
                 {
                     var sideways = ImageFilters.BoxBlur(normalized, along, 0).Pad(pad);
-                    hits.AddRange(RunRotated(sideways, toImage.After(Map(1, pad))));
+                    var sidewaysHits = RunRotated(sideways, toImage.After(Map(1, pad)));
+                    Recheck(sideways, toImage.After(Map(1, pad)), sidewaysHits, ballot);
+                    hits.AddRange(sidewaysHits);
                 }
                 yield return hits;
             }
 
             // Out of focus: steepen the edges.
-            yield return DecodeVariant(ImageFilters.Sharpen(normalized, 2.0, 1.5f), toImage);
+            yield return DecodeVariant(ImageFilters.Sharpen(normalized, 2.0, 1.5f), toImage, ballot);
 
             // Last resort for 1D and PDF417 codes the tilt estimate missed: try the diagonals.
             if (_options.AutoRotate && _rowScanFormats.Count > 0)
@@ -265,13 +271,16 @@ namespace InPoint.Cloud.OpenBarcode.Decoding
                 {
                     var rotated = ImageFilters.Rotate(normalized, angle, out var toWork);
                     int pad = PadFor(rotated);
-                    yield return Run(rotated.Pad(pad), hybrid: true, toImage.After(toWork).After(Map(1, pad)), _rowScanFormats, _options.ReadMultiple);
+                    var map = toImage.After(toWork).After(Map(1, pad));
+                    var hits = Run(rotated.Pad(pad), hybrid: true, map, _rowScanFormats, _options.ReadMultiple);
+                    Recheck(rotated.Pad(pad), map, hits, ballot, rotated: false);
+                    yield return hits;
                 }
             }
         }
 
         /// <summary>One clean-up variant: the full pass, the sideways 1D pass and the 2D region search.</summary>
-        private List<RawHit> DecodeVariant(GrayImage variant, Affine toImage)
+        private List<RawHit> DecodeVariant(GrayImage variant, Affine toImage, Ballot ballot)
         {
             int maxSide = Math.Max(variant.Width, variant.Height);
             if (maxSide < MinUsefulSize)
@@ -287,16 +296,33 @@ namespace InPoint.Cloud.OpenBarcode.Decoding
             var hits = Run(prepared, hybrid: true, map, _formats, _options.ReadMultiple);
             if (_options.AutoRotate && _linearFormats.Count > 0 && (hits.Count == 0 || _options.ReadMultiple))
                 hits.AddRange(RunRotated(prepared, map));
+            Recheck(prepared, map, hits, ballot);
             if (_centreSeekingFormats.Count > 0 && (_options.ReadMultiple || hits.Count == 0))
-                hits.AddRange(DecodeRegions(variant, toImage, hits));
+                hits.AddRange(DecodeRegions(variant, toImage, hits, sampleDataMatrix: true));
             return hits;
         }
 
-        private List<RawHit> RunRotated(GrayImage prepared, Affine map)
+        private List<RawHit> RunRotated(GrayImage prepared, Affine map, bool hybrid = true)
         {
             // Source (x, y) lands at (H - 1 - y, x), so rotated (u, v) came from (v, H - 1 - u).
             var unrotate = new Affine(0, 1, 0, -1, 0, prepared.Height - 1);
-            return Run(prepared.RotateClockwise(), hybrid: true, map.After(unrotate), _linearFormats, _options.ReadMultiple);
+            return Run(prepared.RotateClockwise(), hybrid, map.After(unrotate), _linearFormats, _options.ReadMultiple);
+        }
+
+        /// <summary>
+        /// When a clean-up pass read nothing but weakly checked codes, reads the same bitmap again with ZXing's
+        /// other binarizer, so an EAN-13 or UPC-A that only this clean-up brings out (a blurred one, say) gets
+        /// its second vote. Sideways too when <c>rotated</c>, for hits from the quarter-turn pass.
+        /// </summary>
+        private void Recheck(GrayImage prepared, Affine map, List<RawHit> hits, Ballot ballot, bool rotated = true)
+        {
+            // Only the long retail codes: short ones (UPC-E, EAN-8) come out of noise and of other 1D symbols
+            // the same way on every binarizer, so a re-read of the same picture proves nothing for them.
+            var claims = hits.FindAll(h => (h.Format & LongRetail) != 0);
+            if (claims.Count == 0 || hits.Exists(h => (h.Format & WeaklyChecked) == 0)) return;
+            var again = Run(prepared, hybrid: false, map, _linearFormats, _options.ReadMultiple);
+            if (rotated && _options.AutoRotate) again.AddRange(RunRotated(prepared, map, hybrid: false));
+            ballot.Add(again.FindAll(a => claims.Exists(c => c.Format == a.Format && c.Text == a.Text)));
         }
 
         /// <summary>
@@ -356,7 +382,8 @@ namespace InPoint.Cloud.OpenBarcode.Decoding
         /// <param name="image">The bitmap to crop from.</param>
         /// <param name="toImage">Maps <paramref name="image"/> coordinates to the caller's image.</param>
         /// <param name="found">Hits so far, in the caller's coordinates.</param>
-        private IEnumerable<RawHit> DecodeRegions(GrayImage image, Affine toImage, List<RawHit> found)
+        /// <param name="sampleDataMatrix">Whether to fall back to <see cref="DataMatrixSampler"/> where ZXing finds nothing.</param>
+        private IEnumerable<RawHit> DecodeRegions(GrayImage image, Affine toImage, List<RawHit> found, bool sampleDataMatrix = false)
         {
             var regions = RegionFinder.Find(image, MaxRegions);
             if (regions.Count <= 1 && found.Count > 0) yield break;
@@ -373,7 +400,14 @@ namespace InPoint.Cloud.OpenBarcode.Decoding
                 // The crop keeps the page's resolution, so it only needs the quiet-zone padding, not an upscale.
                 int pad = PadFor(crop);
                 var cropMap = new Affine(1, 0, ox - pad, 0, 1, oy - pad);
-                foreach (var local in Run(crop.Pad(pad), hybrid: true, cropMap, _centreSeekingFormats, multiple: false))
+                var locals = Run(crop.Pad(pad), hybrid: true, cropMap, _centreSeekingFormats, multiple: false);
+                if (locals.Count == 0 && sampleDataMatrix && (_options.Formats & BarcodeFormat.DataMatrix) != 0
+                    && DataMatrixSampler.Read(crop) is DataMatrixSampler.Result sampled)
+                {
+                    var corners = Array.ConvertAll(sampled.Corners, p => new BarcodePoint(p.X + ox, p.Y + oy));
+                    locals.Add(new RawHit(sampled.Text, BarcodeFormat.DataMatrix, sampled.RawBytes, corners));
+                }
+                foreach (var local in locals)
                 {
                     inImage.Add(local);
                     var hit = local.Transform(toImage);

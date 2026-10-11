@@ -12,6 +12,8 @@ public class PoorImageTests
     {
         // Grey edges from a camera-like resample at a fractional scale; nearest-neighbour upscaling broke these.
         "anti-aliased" => new Degraded { PixelsPerModule = 3.21 },
+        "blurry" => new Degraded { Blur = 1.8 },
+        "very blurry" => new Degraded { PixelsPerModule = 4, Blur = 2.4 },
         "faded" => new Degraded { Ink = 0.52f, Paper = 0.59f, Blur = 0.5, Noise = 2 },
         "dark" => new Degraded { Ink = 0.02f, Paper = 0.18f, Blur = 0.5, Noise = 3 },
         "shadowed" => new Degraded { LightFalloff = 0.85, Blur = 0.5, Noise = 3 },
@@ -25,6 +27,10 @@ public class PoorImageTests
     [Theory]
     [InlineData("anti-aliased", ZxFormat.EAN_13, "4006381333931")]
     [InlineData("anti-aliased", ZxFormat.CODE_39, "PART42X")]
+    [InlineData("blurry", ZxFormat.DATA_MATRIX, "LOT 2026-10 SN 000123")]
+    [InlineData("very blurry", ZxFormat.EAN_13, "4006381333931")]
+    [InlineData("faded", ZxFormat.DATA_MATRIX, "LOT 2026-10 SN 000123")]
+    [InlineData("noisy", ZxFormat.DATA_MATRIX, "LOT 2026-10 SN 000123")]
     [InlineData("faded", ZxFormat.QR_CODE, "https://example.com/order?id=4711")]
     [InlineData("faded", ZxFormat.CODE_128, "SHIP-00012345")]
     [InlineData("faded", ZxFormat.AZTEC, "Aztec ticket 0815-4711")]

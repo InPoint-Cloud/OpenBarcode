@@ -109,10 +109,13 @@ straight away cost nothing extra. Turn the option off, or use `--no-enhance`, fo
 Faded print, dark or unevenly lit photos, noise, JPEG artefacts, blur and tilted codes are handled by
 clean-up passes that run only when the normal passes find nothing:
 
-- lighting correction that stretches contrast locally (faint print, shadows, dark photos),
+- lighting correction that stretches contrast locally (faint print, shadows, dark photos) without
+  amplifying sensor noise,
 - adaptive thresholding, which ZXing's per-row binarizer for 1D codes lacks,
 - denoising (median and Gaussian), and averaging along the bars of 1D codes,
 - sharpening for out-of-focus pictures,
+- a Data Matrix reader of its own that samples each module's average brightness, for blurry, noisy and
+  faint Data Matrix codes that ZXing's detector cannot outline,
 - tilt detection from edge directions, so Aztec, PDF417 and 1D codes are read at any angle
   (ZXing gives up beyond about 10–15°),
 - large images are cleaned up at half size.

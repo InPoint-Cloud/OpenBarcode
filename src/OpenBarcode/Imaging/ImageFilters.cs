@@ -12,12 +12,14 @@ namespace InPoint.Cloud.OpenBarcode.Imaging
         /// Evens out lighting and stretches contrast locally: each pixel is rescaled between the darkest and
         /// lightest values around it, so faint print, dark photos and shadows all end up black on white.
         /// </summary>
-        /// <param name="image">The source image.</param>
-        /// <param name="minRange">Smallest local light/dark difference that is stretched to full contrast;
-        /// flatter areas (blank paper, noise) are stretched less.</param>
-        public static GrayImage NormalizeLighting(GrayImage image, int minRange = 12)
+        /// <remarks>
+        /// Local differences smaller than about fourteen times the noise level (at least 12 grey levels) are not
+        /// stretched to full contrast, so blank paper stays light instead of turning into amplified grain.
+        /// </remarks>
+        public static GrayImage NormalizeLighting(GrayImage image)
         {
             int w = image.Width, h = image.Height;
+            float minRange = (float)Math.Min(96, Math.Max(12, 14 * NoiseLevel(image)));
             int block = Clamp(Math.Max(w, h) / 24, 8, 64);
             int bw = (w + block - 1) / block, bh = (h + block - 1) / block;
             var lo = new byte[bw * bh];
@@ -77,20 +79,40 @@ namespace InPoint.Cloud.OpenBarcode.Imaging
                     float u = Lerp(Lerp(hi2[y0 * bw + x0], hi2[y0 * bw + xb], tx), Lerp(hi2[yb * bw + x0], hi2[yb * bw + xb], tx), ty);
                     float range = u - l;
                     int v = px[y * w + x];
-                    float result;
-                    if (range >= minRange)
-                    {
-                        result = (v - l) * 255f / range;
-                    }
-                    else
-                    {
-                        // Flat area: keep it light and only stretch what little contrast there is.
-                        result = 255 - (u - v) * 255f / minRange;
-                    }
-                    dst[y * w + x] = ToByte(result);
+                    // Measured from the light end, so a flat area stays light and only its real contrast is stretched.
+                    dst[y * w + x] = ToByte(255 - (u - v) * 255f / Math.Max(range, minRange));
                 }
             }
             return new GrayImage(w, h, dst);
+        }
+
+        /// <summary>
+        /// Estimates the standard deviation of pixel noise from the median difference between horizontal
+        /// neighbours; edges are too rare to move the median.
+        /// </summary>
+        public static double NoiseLevel(GrayImage image)
+        {
+            var histogram = new int[256];
+            int w = image.Width, h = image.Height, step = Math.Max(1, h / 256);
+            var px = image.Pixels;
+            long count = 0;
+            for (int y = 0; y < h; y += step)
+            {
+                int row = y * w;
+                for (int x = 1; x < w; x++)
+                {
+                    histogram[Math.Abs(px[row + x] - px[row + x - 1])]++;
+                    count++;
+                }
+            }
+            long seen = 0;
+            for (int d = 0; d < 256; d++)
+            {
+                seen += histogram[d];
+                // For Gaussian noise the median absolute difference of neighbours is about 0.95 sigma.
+                if (seen * 2 >= count) return d / 0.954;
+            }
+            return 0;
         }
 
         /// <summary>
