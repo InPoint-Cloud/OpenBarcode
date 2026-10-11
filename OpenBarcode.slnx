@@ -6,4 +6,13 @@
   <Folder Name="/tests/">
     <Project Path="tests/OpenBarcode.Tests/OpenBarcode.Tests.csproj" />
   </Folder>
+  <Folder Name="/_SolutionItems/">
+    <File Path=".editorconfig" />
+    <File Path=".gitignore" />
+    <File Path="Directory.Build.props" />
+    <File Path="global.json" />
+    <File Path="LICENSE" />
+    <File Path="README.md" />
+    <File Path="THIRD-PARTY-NOTICES.md" />
+  </Folder>
 </Solution>

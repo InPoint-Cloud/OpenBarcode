@@ -1,5 +1,3 @@
-using System.Text;
-using Xunit;
 using ZxFormat = ZXing.BarcodeFormat;
 
 namespace InPoint.Cloud.OpenBarcode.Tests;
@@ -24,12 +22,13 @@ public class PdfTests
         var matrix = Fixtures.Matrix(ZxFormat.CODE_128, "VECTOR-128");
         var pdf = SinglePage((_, page) => page.FilledBarcode(matrix, 72, 600, module: 1.0));
 
-        var hit = Assert.Single(Reader.Read(pdf));
+        var hit = Reader.Read(pdf).Should().ContainSingle().Subject;
 
-        Assert.Equal("VECTOR-128", hit.Text);
-        Assert.Equal(BarcodeFormat.Code128, hit.Format);
-        Assert.Equal(BarcodeSource.PdfVector, hit.Source);
-        Assert.Equal(1, hit.PageNumber);
+        using var scope = new AssertionScope();
+        hit.Text.Should().Be("VECTOR-128");
+        hit.Format.Should().Be(BarcodeFormat.Code128);
+        hit.Source.Should().Be(BarcodeSource.PdfVector);
+        hit.PageNumber.Should().Be(1);
     }
 
     [Fact]
@@ -38,7 +37,7 @@ public class PdfTests
         var matrix = Fixtures.Matrix(ZxFormat.QR_CODE, "vector qr, single path");
         var pdf = SinglePage((_, page) => page.FilledBarcode(matrix, 100, 400, module: 3, singlePath: true));
 
-        Assert.Equal("vector qr, single path", Assert.Single(Reader.Read(pdf)).Text);
+        Reader.Read(pdf).Should().ContainSingle().Which.Text.Should().Be("vector qr, single path");
     }
 
     [Fact]
@@ -47,9 +46,10 @@ public class PdfTests
         var matrix = Fixtures.Matrix(ZxFormat.EAN_13, "4006381333931");
         var pdf = SinglePage((_, page) => page.StrokedBarcode(matrix, 100, 500, module: 1.2));
 
-        var hit = Assert.Single(Reader.Read(pdf));
-        Assert.Equal("4006381333931", hit.Text);
-        Assert.Equal(BarcodeFormat.Ean13, hit.Format);
+        var hit = Reader.Read(pdf).Should().ContainSingle().Subject;
+        using var scope = new AssertionScope();
+        hit.Text.Should().Be("4006381333931");
+        hit.Format.Should().Be(BarcodeFormat.Ean13);
     }
 
     [Fact]
@@ -59,7 +59,7 @@ public class PdfTests
         // Rotate 90 degrees and scale by 1.5 around (300, 200).
         var pdf = SinglePage((_, page) => page.Op("q 0 1.5 -1.5 0 300 200 cm").FilledBarcode(matrix, 0, 0, module: 1).Op("Q"));
 
-        Assert.Equal("ROTATED39", Assert.Single(Reader.Read(pdf)).Text);
+        Reader.Read(pdf).Should().ContainSingle().Which.Text.Should().Be("ROTATED39");
     }
 
     [Fact]
@@ -74,9 +74,10 @@ public class PdfTests
             page.DrawImage("Im1", 100, 500, 150, 150);
         });
 
-        var hit = Assert.Single(Reader.Read(pdf));
-        Assert.Equal("flate image", hit.Text);
-        Assert.Equal(BarcodeSource.PdfImage, hit.Source);
+        var hit = Reader.Read(pdf).Should().ContainSingle().Subject;
+        using var scope = new AssertionScope();
+        hit.Text.Should().Be("flate image");
+        hit.Source.Should().Be(BarcodeSource.PdfImage);
     }
 
     [Fact]
@@ -91,7 +92,7 @@ public class PdfTests
             page.DrawImage("Im1", 100, 500, 200, 200);
         });
 
-        Assert.Equal("jpeg in pdf", Assert.Single(Reader.Read(pdf)).Text);
+        Reader.Read(pdf).Should().ContainSingle().Which.Text.Should().Be("jpeg in pdf");
     }
 
     [Fact]
@@ -109,7 +110,7 @@ public class PdfTests
             page.DrawImage("Im1", 0, 0, 595, 842);
         });
 
-        Assert.Equal("SCANNED-G4", Assert.Single(Reader.Read(pdf)).Text);
+        Reader.Read(pdf).Should().ContainSingle().Which.Text.Should().Be("SCANNED-G4");
     }
 
     [Fact]
@@ -126,7 +127,7 @@ public class PdfTests
             page.Op("0 g").DrawImage("Im1", 100, 500, 200, 200);
         });
 
-        Assert.Equal("stencil mask", Assert.Single(Reader.Read(pdf)).Text);
+        Reader.Read(pdf).Should().ContainSingle().Which.Text.Should().Be("stencil mask");
     }
 
     [Fact]
@@ -142,11 +143,14 @@ public class PdfTests
         var data = pdf.Build();
 
         var results = Reader.Read(data);
-        Assert.Equal(PdfPageTexts, results.Select(r => r.Text));
-        Assert.Equal(new int?[] { 1, 2, 3 }, results.Select(r => r.PageNumber));
+        using (new AssertionScope())
+        {
+            results.Select(r => r.Text).Should().Equal(PdfPageTexts);
+            results.Select(r => r.PageNumber).Should().Equal(new int?[] { 1, 2, 3 });
+        }
 
         var onlySecond = new BarcodeReader(new BarcodeReaderOptions { PdfFirstPage = 2, PdfLastPage = 2 });
-        Assert.Equal("page 2", Assert.Single(onlySecond.Read(data)).Text);
+        onlySecond.Read(data).Should().ContainSingle().Which.Text.Should().Be("page 2");
     }
 
     [Fact]
@@ -162,7 +166,7 @@ public class PdfTests
             page.FilledBarcode(Fixtures.Matrix(ZxFormat.QR_CODE, "duplicate"), 300, 300, module: 3);
         });
 
-        Assert.Single(Reader.Read(pdf));
+        Reader.Read(pdf).Should().ContainSingle();
     }
 
     [Fact]
@@ -178,8 +182,9 @@ public class PdfTests
 
         var results = Reader.ReadPdf(pdf, warnings);
 
-        Assert.Empty(results);
-        Assert.Contains(warnings, w => w.Contains("JPEG 2000"));
+        using var scope = new AssertionScope();
+        results.Should().BeEmpty();
+        warnings.Should().Contain(w => w.Contains("JPEG 2000"));
     }
 
     [Fact]
@@ -187,7 +192,7 @@ public class PdfTests
     {
         var pdf = SinglePage((_, page) => page.Op("BT /F1 12 Tf 72 720 Td (Hello) Tj ET"));
 
-        Assert.Empty(Reader.Read(pdf));
+        Reader.Read(pdf).Should().BeEmpty();
     }
 }
 
@@ -213,7 +218,7 @@ public class PdfImagePolarityTests
         var image = Fixtures.Image(ZxFormat.QR_CODE, "gray");
         var pdf = PageWithImage($"/Width {image.Width} /Height {image.Height} /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode",
             Fixtures.Deflate(image.Pixels));
-        Assert.Equal("gray", Assert.Single(Strict.Read(pdf)).Text);
+        Strict.Read(pdf).Should().ContainSingle().Which.Text.Should().Be("gray");
     }
 
     [Fact]
@@ -223,7 +228,7 @@ public class PdfImagePolarityTests
         var inverted = Fixtures.Invert(image);
         var pdf = PageWithImage($"/Width {image.Width} /Height {image.Height} /ColorSpace /DeviceGray /BitsPerComponent 8 /Decode [1 0] /Filter /FlateDecode",
             Fixtures.Deflate(inverted.Pixels));
-        Assert.Equal("decode 1 0", Assert.Single(Strict.Read(pdf)).Text);
+        Strict.Read(pdf).Should().ContainSingle().Which.Text.Should().Be("decode 1 0");
     }
 
     [Fact]
@@ -232,7 +237,7 @@ public class PdfImagePolarityTests
         var image = Fixtures.Image(ZxFormat.QR_CODE, "one bit");
         var pdf = PageWithImage($"/Width {image.Width} /Height {image.Height} /ColorSpace /DeviceGray /BitsPerComponent 1 /Filter /FlateDecode",
             Fixtures.Deflate(Fixtures.PackBits(image, blackIsOne: false)));
-        Assert.Equal("one bit", Assert.Single(Strict.Read(pdf)).Text);
+        Strict.Read(pdf).Should().ContainSingle().Which.Text.Should().Be("one bit");
     }
 
     [Fact]
@@ -241,7 +246,7 @@ public class PdfImagePolarityTests
         var image = Fixtures.Image(ZxFormat.QR_CODE, "mask");
         var pdf = PageWithImage($"/Width {image.Width} /Height {image.Height} /ImageMask true /BitsPerComponent 1 /Filter /FlateDecode",
             Fixtures.Deflate(Fixtures.PackBits(image, blackIsOne: false)), prelude: "0 g");
-        Assert.Equal("mask", Assert.Single(Strict.Read(pdf)).Text);
+        Strict.Read(pdf).Should().ContainSingle().Which.Text.Should().Be("mask");
     }
 
     [Fact]
@@ -250,7 +255,7 @@ public class PdfImagePolarityTests
         var image = Fixtures.Image(ZxFormat.QR_CODE, "mask 1 0");
         var pdf = PageWithImage($"/Width {image.Width} /Height {image.Height} /ImageMask true /Decode [1 0] /BitsPerComponent 1 /Filter /FlateDecode",
             Fixtures.Deflate(Fixtures.PackBits(image, blackIsOne: true)), prelude: "0 g");
-        Assert.Equal("mask 1 0", Assert.Single(Strict.Read(pdf)).Text);
+        Strict.Read(pdf).Should().ContainSingle().Which.Text.Should().Be("mask 1 0");
     }
 
     [Fact]
@@ -259,7 +264,7 @@ public class PdfImagePolarityTests
         var image = Fixtures.Image(ZxFormat.QR_CODE, "jpeg 1 0");
         var pdf = PageWithImage($"/Width {image.Width} /Height {image.Height} /ColorSpace /DeviceGray /BitsPerComponent 8 /Decode [1 0] /Filter /DCTDecode",
             Fixtures.Jpeg(Fixtures.Invert(image)));
-        Assert.Equal("jpeg 1 0", Assert.Single(Strict.Read(pdf)).Text);
+        Strict.Read(pdf).Should().ContainSingle().Which.Text.Should().Be("jpeg 1 0");
     }
 
     [Fact]
@@ -269,7 +274,7 @@ public class PdfImagePolarityTests
         var rgb = image.Pixels.SelectMany(p => new[] { p, p, p }).ToArray();
         var pdf = PageWithImage($"/Width {image.Width} /Height {image.Height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode",
             Fixtures.Deflate(rgb));
-        Assert.Equal("rgb", Assert.Single(Strict.Read(pdf)).Text);
+        Strict.Read(pdf).Should().ContainSingle().Which.Text.Should().Be("rgb");
     }
 
     [Fact]
@@ -279,7 +284,7 @@ public class PdfImagePolarityTests
         var cmyk = image.Pixels.SelectMany(p => new byte[] { 0, 0, 0, (byte)(255 - p) }).ToArray();
         var pdf = PageWithImage($"/Width {image.Width} /Height {image.Height} /ColorSpace /DeviceCMYK /BitsPerComponent 8 /Filter /FlateDecode",
             Fixtures.Deflate(cmyk));
-        Assert.Equal("cmyk", Assert.Single(Strict.Read(pdf)).Text);
+        Strict.Read(pdf).Should().ContainSingle().Which.Text.Should().Be("cmyk");
     }
 
     [Fact]
@@ -290,7 +295,7 @@ public class PdfImagePolarityTests
         var pdf = PageWithImage(
             $"/Width {image.Width} /Height {image.Height} /ColorSpace [/Indexed /DeviceRGB 1 <FFFFFF000000>] /BitsPerComponent 8 /Filter /FlateDecode",
             Fixtures.Deflate(indices));
-        Assert.Equal("indexed", Assert.Single(Strict.Read(pdf)).Text);
+        Strict.Read(pdf).Should().ContainSingle().Which.Text.Should().Be("indexed");
     }
 
     [Fact]
@@ -301,7 +306,7 @@ public class PdfImagePolarityTests
             $"/Width {image.Width} /Height {image.Height} /ColorSpace /DeviceGray /BitsPerComponent 1 " +
             $"/Filter /CCITTFaxDecode /DecodeParms << /K -1 /Columns {image.Width} /Rows {image.Height} >>",
             Fixtures.CcittG4(image));
-        Assert.Equal("ccitt", Assert.Single(Strict.Read(pdf)).Text);
+        Strict.Read(pdf).Should().ContainSingle().Which.Text.Should().Be("ccitt");
     }
 
     [Fact]
@@ -310,6 +315,6 @@ public class PdfImagePolarityTests
         var image = Fixtures.Image(ZxFormat.QR_CODE, "jpeg");
         var pdf = PageWithImage($"/Width {image.Width} /Height {image.Height} /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /DCTDecode",
             Fixtures.Jpeg(image));
-        Assert.Equal("jpeg", Assert.Single(Strict.Read(pdf)).Text);
+        Strict.Read(pdf).Should().ContainSingle().Which.Text.Should().Be("jpeg");
     }
 }

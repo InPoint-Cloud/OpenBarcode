@@ -1,5 +1,4 @@
 using InPoint.Cloud.OpenBarcode.Imaging;
-using Xunit;
 using ZxFormat = ZXing.BarcodeFormat;
 
 namespace InPoint.Cloud.OpenBarcode.Tests;
@@ -30,11 +29,12 @@ public class ImageTests
 
         var results = Reader.Read(png);
 
-        var hit = Assert.Single(results);
-        Assert.Equal(expected, hit.Format);
-        Assert.Equal(expected == BarcodeFormat.Codabar ? text.Trim('A', 'B') : text, hit.Text);
-        Assert.Equal(BarcodeSource.Image, hit.Source);
-        Assert.Null(hit.PageNumber);
+        var hit = results.Should().ContainSingle().Subject;
+        using var scope = new AssertionScope();
+        hit.Format.Should().Be(expected);
+        hit.Text.Should().Be(expected == BarcodeFormat.Codabar ? text.Trim('A', 'B') : text);
+        hit.Source.Should().Be(BarcodeSource.Image);
+        hit.PageNumber.Should().BeNull();
     }
 
     public static IEnumerable<object[]> Encodings()
@@ -76,7 +76,7 @@ public class ImageTests
 
         var texts = Reader.Read(file).Select(r => r.Text).OrderBy(t => t).ToArray();
 
-        Assert.Equal(new[] { "BARS-" + encoding.ToUpperInvariant(), "format:" + encoding }, texts);
+        texts.Should().Equal(new[] { "BARS-" + encoding.ToUpperInvariant(), "format:" + encoding });
     }
 
     [Fact]
@@ -89,8 +89,9 @@ public class ImageTests
 
         var results = Reader.Read(tiff);
 
-        Assert.Equal(TiffPageTexts, results.Select(r => r.Text));
-        Assert.Equal(new int?[] { 0, 1, 2 }, results.Select(r => r.FrameIndex));
+        using var scope = new AssertionScope();
+        results.Select(r => r.Text).Should().Equal(TiffPageTexts);
+        results.Select(r => r.FrameIndex).Should().Equal(new int?[] { 0, 1, 2 });
     }
 
     [Fact]
@@ -99,8 +100,8 @@ public class ImageTests
         var rotated = Fixtures.Rotate90(Fixtures.Image(ZxFormat.CODE_128, "ROTATED-128", moduleSize: 3));
         var inverted = Fixtures.Invert(Fixtures.Image(ZxFormat.QR_CODE, "inverted qr"));
 
-        Assert.Equal("ROTATED-128", Assert.Single(Reader.Read(Fixtures.Png(rotated))).Text);
-        Assert.Equal("inverted qr", Assert.Single(Reader.Read(Fixtures.Png(inverted))).Text);
+        Reader.Read(Fixtures.Png(rotated)).Should().ContainSingle().Which.Text.Should().Be("ROTATED-128");
+        Reader.Read(Fixtures.Png(inverted)).Should().ContainSingle().Which.Text.Should().Be("inverted qr");
     }
 
     [Fact]
@@ -109,7 +110,7 @@ public class ImageTests
         // One pixel per module and the image cropped right to the symbol, as barcodes pasted into documents often are.
         var tight = Fixtures.Image(ZxFormat.QR_CODE, "tight crop", moduleSize: 1, quietModules: 0);
 
-        Assert.Equal("tight crop", Assert.Single(Reader.Read(Fixtures.Png(tight))).Text);
+        Reader.Read(Fixtures.Png(tight)).Should().ContainSingle().Which.Text.Should().Be("tight crop");
     }
 
     [Fact]
@@ -123,7 +124,7 @@ public class ImageTests
 
         var texts = Reader.Read(Fixtures.Png(canvas)).Select(r => r.Text).OrderBy(t => t, StringComparer.Ordinal);
 
-        Assert.Equal(MixedCanvasTexts, texts);
+        texts.Should().Equal(MixedCanvasTexts);
     }
 
     [Fact]
@@ -134,9 +135,9 @@ public class ImageTests
         Fixtures.Blit(canvas, Fixtures.Image(ZxFormat.CODE_128, "IGNORED", moduleSize: 2), 20, 600);
         var reader = new BarcodeReader(new BarcodeReaderOptions { Formats = BarcodeFormat.QrCode });
 
-        var hit = Assert.Single(reader.Read(Fixtures.Png(canvas)));
+        var hit = reader.Read(Fixtures.Png(canvas)).Should().ContainSingle().Subject;
 
-        Assert.Equal("qr only", hit.Text);
+        hit.Text.Should().Be("qr only");
     }
 
     [Fact]
@@ -152,18 +153,19 @@ public class ImageTests
 
         var results = Reader.Read(GrayImage.FromPixels(bgra, gray.Width, gray.Height, PixelLayout.Bgra32));
 
-        Assert.Equal("from pixels", Assert.Single(results).Text);
+        results.Should().ContainSingle().Which.Text.Should().Be("from pixels");
     }
 
     [Fact]
     public void Returns_nothing_for_an_image_without_barcodes()
     {
-        Assert.Empty(Reader.Read(Fixtures.Png(new GrayImage(300, 200))));
+        Reader.Read(Fixtures.Png(new GrayImage(300, 200))).Should().BeEmpty();
     }
 
     [Fact]
     public void Rejects_unknown_content()
     {
-        Assert.Throws<NotSupportedException>(() => Reader.Read([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]));
+        FluentActions.Invoking(() => Reader.Read([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]))
+            .Should().Throw<NotSupportedException>();
     }
 }
