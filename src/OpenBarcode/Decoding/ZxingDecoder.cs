@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using InPoint.Cloud.OpenBarcode.Imaging;
 using ZXing;
 using ZXing.Common;
@@ -51,10 +52,14 @@ internal sealed class ZxingDecoder
     /// <summary>1D formats plus PDF417, whose detector also scans along rows and so needs the image level.</summary>
     private readonly IList<ZxFormat> _rowScanFormats;
     private readonly bool _maxiCode;
+    private readonly CancellationToken _cancellationToken;
 
-    public ZxingDecoder(BarcodeReaderOptions options)
+    /// <param name="options">The reader's options.</param>
+    /// <param name="cancellationToken">Checked before every ZXing pass, so a long search over one image can be stopped.</param>
+    public ZxingDecoder(BarcodeReaderOptions options, CancellationToken cancellationToken = default)
     {
         _options = options;
+        _cancellationToken = cancellationToken;
         // ZXing's MaxiCode reader only handles tightly cropped symbols and throws IndexOutOfRangeException
         // on many other images, which would abort the whole pass. It gets a guarded pass of its own.
         _maxiCode = (options.Formats & BarcodeFormat.MaxiCode) != 0;
@@ -726,6 +731,7 @@ internal sealed class ZxingDecoder
 
     private List<RawHit> Run(GrayImage image, bool hybrid, Affine map, IList<ZxFormat> formats, bool multiple)
     {
+        _cancellationToken.ThrowIfCancellationRequested();
         var reader = CreateReader(hybrid, formats);
         var source = new RGBLuminanceSource(image.Pixels, image.Width, image.Height, RGBLuminanceSource.BitmapFormat.Gray8);
         if (!TryDecode(reader, source, multiple, out var results)) return [];

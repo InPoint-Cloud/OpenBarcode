@@ -61,6 +61,17 @@ var image = GrayImage.FromPixels(bgraBytes, width, height, PixelLayout.Bgra32, s
 results = reader.Read(image);
 ```
 
+Long documents can be read page by page, and any read can be cancelled:
+
+```csharp
+// Each page's barcodes come back as soon as that page is done; breaking out of the loop stops reading.
+foreach (var barcode in reader.EnumerateFile("archive.pdf", warnings, cancellationToken))
+    Console.WriteLine($"page {barcode.PageNumber}: {barcode.Text}");
+
+// Every Read method has an overload that takes a CancellationToken; it throws OperationCanceledException.
+results = reader.ReadFile("scan.tif", cancellationToken);
+```
+
 Each `BarcodeResult` has `Text`, `Format`, `RawBytes`, `Points` (corner or end points, in pixels of the image it
 was decoded from), `Source` (`Image`, `PdfImage`, `PdfVector`), `PageNumber` (PDFs, 1-based) and `FrameIndex`
 (TIFF page, or image index on a PDF page).

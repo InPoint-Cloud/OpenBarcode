@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- `BarcodeReader.Enumerate` and `EnumerateFile` return each page's barcodes (or each TIFF page's) as soon as that
+  page is read, so long documents show results early and can be stopped partway.
+- Every `Read` method has an overload that takes a `CancellationToken`. It is checked between pages and before every
+  decoding pass, so even a slow search over a single image stops promptly.
+- `tests/OpenBarcode.Benchmark`, a detection benchmark of 462 simulated poor pictures and 24 without a barcode.
+  CI fails when a change reads fewer pictures or makes more wrong reads.
+
 ## [0.2.0] - 2026-10-11
 
 ### Added
