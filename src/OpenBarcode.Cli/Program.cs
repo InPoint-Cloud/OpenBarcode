@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 using InPoint.Cloud.OpenBarcode;
 
@@ -28,6 +29,7 @@ const string Usage = """
 var options = new BarcodeReaderOptions();
 var files = new List<string>();
 bool json = false, verbose = false;
+BarcodeReader reader;
 
 try
 {
@@ -43,11 +45,11 @@ try
             case "--fast": options.TryHarder = false; options.AutoRotate = false; options.TryInverted = false; options.EnhancePoorImages = false; break;
             case "--first": options.ReadMultiple = false; break;
             case "--no-enhance": options.EnhancePoorImages = false; break;
-            case "--dpi": options.PdfRenderDpi = int.Parse(Next()); break;
+            case "--dpi": options.PdfRenderDpi = ParseInt(Next()); break;
             case "--pages":
                 var range = Next().Split('-');
-                options.PdfFirstPage = int.Parse(range[0]);
-                options.PdfLastPage = int.Parse(range.Length > 1 ? range[1] : range[0]);
+                options.PdfFirstPage = ParseInt(range[0]);
+                options.PdfLastPage = ParseInt(range.Length > 1 ? range[1] : range[0]);
                 break;
             case "--no-images": options.PdfReadImages = false; break;
             case "--no-vectors": options.PdfReadVectorGraphics = false; break;
@@ -60,6 +62,8 @@ try
         }
     }
     if (files.Count == 0) throw new ArgumentException("No input files.");
+    // Validates the options, e.g. a --dpi out of range.
+    reader = new BarcodeReader(options);
 }
 catch (Exception ex) when (ex is ArgumentException or FormatException)
 {
@@ -68,7 +72,6 @@ catch (Exception ex) when (ex is ArgumentException or FormatException)
     return 2;
 }
 
-var reader = new BarcodeReader(options);
 var report = new List<object>();
 int found = 0, failed = 0;
 
@@ -119,9 +122,11 @@ foreach (var file in files)
 }
 
 if (json)
-    Console.WriteLine(JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
+    Console.WriteLine(JsonSerializer.Serialize(report, JsonOptions.Indented));
 
 return failed > 0 ? 2 : found > 0 ? 0 : 1;
+
+static int ParseInt(string value) => int.Parse(value, NumberStyles.Integer, CultureInfo.InvariantCulture);
 
 static BarcodeFormat ParseFormats(string list)
 {
@@ -145,4 +150,9 @@ static BarcodeFormat ParseFormats(string list)
         };
     }
     return result;
+}
+
+internal static class JsonOptions
+{
+    public static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
 }

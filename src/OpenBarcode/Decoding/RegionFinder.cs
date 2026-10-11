@@ -26,7 +26,7 @@ internal static class RegionFinder
         int w = image.Width, h = image.Height;
         var cell = Math.Max(4, Math.Max(w, h) / 256);
         int gw = (w + cell - 1) / cell, gh = (h + cell - 1) / cell;
-        var threshold = OtsuThreshold(image.Pixels);
+        var threshold = ImageFilters.OtsuThreshold(image.Pixels);
 
         // Mark cells with a meaningful share of dark pixels.
         var dark = new int[gw * gh];
@@ -102,30 +102,6 @@ internal static class RegionFinder
         var result = new List<Region>(Math.Min(maxRegions, regions.Count));
         for (var i = 0; i < regions.Count && i < maxRegions; i++) result.Add(regions[i].Region);
         return result;
-    }
-
-    private static byte OtsuThreshold(byte[] pixels)
-    {
-        var histogram = new long[256];
-        foreach (var p in pixels) histogram[p]++;
-        long total = pixels.Length;
-        double sum = 0;
-        for (var i = 0; i < 256; i++) sum += i * (double)histogram[i];
-        double sumB = 0, best = -1;
-        long wB = 0;
-        var threshold = 128;
-        for (var t = 0; t < 256; t++)
-        {
-            wB += histogram[t];
-            if (wB == 0) continue;
-            var wF = total - wB;
-            if (wF == 0) break;
-            sumB += t * (double)histogram[t];
-            double mB = sumB / wB, mF = (sum - sumB) / wF;
-            var between = (double)wB * wF * (mB - mF) * (mB - mF);
-            if (between > best) { best = between; threshold = t + 1; }
-        }
-        return (byte)Math.Max(1, Math.Min(255, threshold));
     }
 
     /// <summary>Returns the pixels of <paramref name="region"/> grown by <paramref name="margin"/>, clamped to the image.</summary>
