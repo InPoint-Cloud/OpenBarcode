@@ -4,6 +4,7 @@
     <Project Path="src/OpenBarcode/OpenBarcode.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/OpenBarcode.Benchmark/OpenBarcode.Benchmark.csproj" />
     <Project Path="tests/OpenBarcode.Tests/OpenBarcode.Tests.csproj" />
   </Folder>
   <Folder Name="/_SolutionItems/">

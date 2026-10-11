@@ -169,6 +169,20 @@ The tests generate barcodes in every supported symbology and file format, build 
 streams and image dictionaries, and read real-world-style samples made by reportlab, poppler, ImageMagick and
 jbig2enc (`tests/samples`).
 
+### Detection benchmark
+
+`tests/OpenBarcode.Benchmark` renders 462 poor pictures (11 conditions such as blur, noise, fading, tilt,
+perspective and phone photos, each for 7 symbologies at 6 severities) plus 24 pictures without a barcode, and
+prints how many were read per condition and how many reads were wrong. CI runs it on every push and fails when
+fewer pictures are read or more are read wrongly than in `tests/OpenBarcode.Benchmark/baseline.json`.
+
+```
+dotnet run -c Release --project tests/OpenBarcode.Benchmark -- --baseline tests/OpenBarcode.Benchmark/baseline.json --verbose
+```
+
+After a change that reads more, save the new result with `--save tests/OpenBarcode.Benchmark/baseline.json` and
+commit it with the change.
+
 ## License
 
 Apache-2.0. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the libraries it builds on.

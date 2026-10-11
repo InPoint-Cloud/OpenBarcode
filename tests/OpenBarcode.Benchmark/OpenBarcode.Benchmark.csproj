@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>InPoint.Cloud.OpenBarcode.Benchmark</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The same picture simulator the poor-image tests use. -->
+    <Compile Include="..\OpenBarcode.Tests\Degraded.cs" Link="Degraded.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\OpenBarcode\OpenBarcode.csproj" />
+  </ItemGroup>
+
+</Project>

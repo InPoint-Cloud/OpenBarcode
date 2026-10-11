@@ -63,3 +63,20 @@ jobs:
         with:
           name: packages
           path: artifacts/*.nupkg
+
+  # Reads 462 simulated poor pictures and fails when fewer are read, or more are read wrongly, than in the saved
+  # baseline. After a change that improves reading, update the baseline with --save (see README).
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Detection benchmark
+        run: |
+          set -o pipefail
+          dotnet run -c Release --project tests/OpenBarcode.Benchmark -- \
+            --baseline tests/OpenBarcode.Benchmark/baseline.json --verbose | tee benchmark.txt
+          { echo "### Detection benchmark"; echo; grep -v '^  ' benchmark.txt; } >> "$GITHUB_STEP_SUMMARY"
