@@ -1,4 +1,5 @@
 using InPoint.Cloud.OpenBarcode.Imaging;
+using ZXing.QrCode.Internal;
 using ZxFormat = ZXing.BarcodeFormat;
 
 namespace InPoint.Cloud.OpenBarcode.Tests;
@@ -51,6 +52,38 @@ public class PoorImageTests
 
         var hit = Assert.Single(results);
         Assert.Equal(text, hit.Text);
+    }
+
+    /// <summary>The payload of the Swiss QR-bill sample, which prints a cross over the middle at level M.</summary>
+    private const string QrBill = "SPC\n0200\n1\nCH2231989000007611146\nS\nKrankenkasse fit&munter\nAm Wasser\n1\n3000\nBern\nCH\n" +
+        "\n\n\n\n\n\n\n121.00\nCHF\nS\nSarah Beispiel\nMustergasse\n1\n3600\nThun\nCH\nQRR\n000037015881325831368099972\n" +
+        "Monatspramie Juli 2020\nEPD\n//S1/10/10201409/11/200630/20/140.000-53/30/102673831/31/200630/32/7.7/33/7.7:9.30/40/0:30";
+
+    [Theory]
+    [InlineData(0.40, 3.0, 0, 0.4, 0)]   // large logo, clean print
+    [InlineData(0.35, 2.5, 4, 1.0, 8)]   // logo in a blurred, tilted, grainy photo
+    public void Reads_qr_codes_with_a_logo(double logo, double pixelsPerModule, double angle, double blur, double noise)
+    {
+        var image = new Degraded
+        {
+            QrLevel = ErrorCorrectionLevel.M, Logo = logo, PixelsPerModule = pixelsPerModule, Angle = angle, Blur = blur, Noise = noise, Seed = 1,
+        }.Render(ZxFormat.QR_CODE, QrBill);
+
+        var hit = Assert.Single(Reader.Read(image));
+
+        Assert.Equal(QrBill, hit.Text);
+    }
+
+    [Fact]
+    public void Texture_of_an_unreadable_qr_code_is_not_taken_for_a_1d_code()
+    {
+        // A QR code too damaged to decode in a poor photo; its module texture used to come out as a UPC-A.
+        var image = new Degraded
+        {
+            QrLevel = ErrorCorrectionLevel.M, Logo = 0.3, PixelsPerModule = 3, Angle = 4, Blur = 1.2, Noise = 12, Seed = 1,
+        }.Render(ZxFormat.QR_CODE, QrBill);
+
+        Assert.DoesNotContain(Reader.Read(image), r => r.Format != BarcodeFormat.QrCode);
     }
 
     [Fact]

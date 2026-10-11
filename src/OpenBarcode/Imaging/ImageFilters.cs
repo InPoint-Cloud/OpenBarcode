@@ -459,6 +459,13 @@ namespace InPoint.Cloud.OpenBarcode.Imaging
             ry = D * x + E * y + F;
         }
 
+        /// <summary>The map back.</summary>
+        public Affine Inverse()
+        {
+            double det = A * E - B * D;
+            return new Affine(E / det, -B / det, (B * F - C * E) / det, -D / det, A / det, (C * D - A * F) / det);
+        }
+
         /// <summary>Applies <paramref name="first"/>, then this map.</summary>
         public Affine After(Affine first) => new Affine(
             A * first.A + B * first.D, A * first.B + B * first.E, A * first.C + B * first.F + C,

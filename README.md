@@ -114,6 +114,8 @@ clean-up passes that run only when the normal passes find nothing:
 - adaptive thresholding, which ZXing's per-row binarizer for 1D codes lacks,
 - denoising (median and Gaussian), and averaging along the bars of 1D codes,
 - sharpening for out-of-focus pictures,
+- QR codes with a logo over the middle: when ZXing finds a QR code but cannot decode it, the modules under a
+  central logo are treated as unknown rather than wrong, which halves what they cost the error correction,
 - a Data Matrix reader of its own that samples each module's average brightness, for blurry, noisy and
   faint Data Matrix codes that ZXing's detector cannot outline,
 - tilt detection from edge directions, so Aztec, PDF417 and 1D codes are read at any angle
