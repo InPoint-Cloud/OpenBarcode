@@ -150,11 +150,7 @@ public sealed class GrayImage
     private static byte[] CreateWhite(int width, int height)
     {
         var buffer = new byte[checked(width * height)];
-#if NETSTANDARD2_0
         for (var i = 0; i < buffer.Length; i++) buffer[i] = 255;
-#else
-        Array.Fill(buffer, (byte)255);
-#endif
         return buffer;
     }
 }
