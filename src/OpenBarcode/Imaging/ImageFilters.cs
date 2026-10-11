@@ -432,7 +432,32 @@ internal static class ImageFilters
 
     private static byte ToByte(float v) => v <= 0 ? (byte)0 : v >= 255 ? (byte)255 : (byte)(v + 0.5f);
 
-    private static int Clamp(int v, int min, int max) => v < min ? min : v > max ? max : v;
+    internal static int Clamp(int v, int min, int max) => v < min ? min : v > max ? max : v;
+
+    /// <summary>Otsu's global threshold: pixels below the returned value are ink.</summary>
+    public static int OtsuThreshold(byte[] pixels)
+    {
+        var histogram = new long[256];
+        foreach (var p in pixels) histogram[p]++;
+        long total = pixels.Length;
+        double sum = 0;
+        for (var i = 0; i < 256; i++) sum += i * (double)histogram[i];
+        double sumB = 0, best = -1;
+        long wB = 0;
+        var threshold = 128;
+        for (var t = 0; t < 256; t++)
+        {
+            wB += histogram[t];
+            if (wB == 0) continue;
+            var wF = total - wB;
+            if (wF == 0) break;
+            sumB += t * (double)histogram[t];
+            double mB = sumB / wB, mF = (sum - sumB) / wF;
+            var between = (double)wB * wF * (mB - mF) * (mB - mF);
+            if (between > best) { best = between; threshold = t + 1; }
+        }
+        return threshold;
+    }
 }
 
 /// <summary>A 2D affine map: (x, y) -> (A x + B y + C, D x + E y + F).</summary>

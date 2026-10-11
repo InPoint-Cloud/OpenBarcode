@@ -42,7 +42,7 @@ internal static class DataMatrixSampler
     public static Result? Read(GrayImage crop)
     {
         if (crop.Width < 16 || crop.Height < 16) return null;
-        var threshold = Otsu(crop.Pixels);
+        var threshold = ImageFilters.OtsuThreshold(crop.Pixels);
         if (!FindBounds(crop, threshold, out var x0, out var y0, out var x1, out var y1)) return null;
         double width = x1 - x0 + 1, height = y1 - y0 + 1;
         if (width < 8 || height < 8) return null;
@@ -273,29 +273,5 @@ internal static class DataMatrixSampler
         for (var c = 1; c < cols; c++) yield return (rows - 1, c, true);                  // bottom finder
         for (var c = 1; c < cols; c++) yield return (0, c, c % 2 == 0);                   // top timing
         for (var r = 1; r < rows - 1; r++) yield return (r, cols - 1, (rows - 1 - r) % 2 == 0); // right timing
-    }
-
-    private static int Otsu(byte[] pixels)
-    {
-        var histogram = new long[256];
-        foreach (var p in pixels) histogram[p]++;
-        long total = pixels.Length;
-        double sum = 0;
-        for (var i = 0; i < 256; i++) sum += i * (double)histogram[i];
-        double sumB = 0, best = -1;
-        long wB = 0;
-        var threshold = 128;
-        for (var t = 0; t < 256; t++)
-        {
-            wB += histogram[t];
-            if (wB == 0) continue;
-            var wF = total - wB;
-            if (wF == 0) break;
-            sumB += t * (double)histogram[t];
-            double mB = sumB / wB, mF = (sum - sumB) / wF;
-            var between = (double)wB * wF * (mB - mF) * (mB - mF);
-            if (between > best) { best = between; threshold = t + 1; }
-        }
-        return threshold;
     }
 }

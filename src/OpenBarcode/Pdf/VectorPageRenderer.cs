@@ -97,7 +97,7 @@ internal static class VectorPageRenderer
             var (r, g, b) = color.ToRGBValues();
             return GrayImage.Luma(ToByte(r), ToByte(g), ToByte(b));
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             return 0; // pattern or unknown colour spaces: assume ink
         }

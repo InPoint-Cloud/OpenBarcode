@@ -15,6 +15,9 @@ internal readonly struct RawHit(string text, BarcodeFormat format, byte[]? rawBy
     public byte[]? RawBytes { get; } = rawBytes;
     public BarcodePoint[] Points { get; } = points;
 
+    /// <summary>Identifies the code regardless of where it was found.</summary>
+    public string Key => Format + "\n" + Text;
+
     /// <summary>Returns a copy with every point mapped through <paramref name="map"/>.</summary>
     public RawHit Transform(Affine map)
     {
@@ -167,9 +170,10 @@ internal sealed class ZxingDecoder
         var hits = Run(prepared, hybrid: false, map, _formats, _options.ReadMultiple);
         var normalized = ImageFilters.NormalizeLighting(image);
         var pad = PadFor(normalized);
-        hits.AddRange(Run(normalized.Pad(pad), hybrid: true, Map(1, pad), _formats, _options.ReadMultiple));
+        var padded = normalized.Pad(pad);
+        hits.AddRange(Run(padded, hybrid: true, Map(1, pad), _formats, _options.ReadMultiple));
         if (_options.AutoRotate && _linearFormats.Count > 0)
-            hits.AddRange(RunRotated(normalized.Pad(pad), Map(1, pad)));
+            hits.AddRange(RunRotated(padded, Map(1, pad)));
         return hits;
     }
 
@@ -178,22 +182,20 @@ internal sealed class ZxingDecoder
     {
         private readonly Dictionary<string, (RawHit Hit, int Count)> _votes = [];
 
-        private static string Key(RawHit hit) => hit.Format + "\n" + hit.Text;
-
         /// <summary>Records one pass; a code read several times within the pass counts once.</summary>
         public void Add(List<RawHit> pass)
         {
             var seen = new HashSet<string>();
             foreach (var hit in pass)
             {
-                var key = Key(hit);
+                var key = hit.Key;
                 if (!seen.Add(key)) continue;
                 _votes[key] = _votes.TryGetValue(key, out var v) ? (v.Hit, v.Count + 1) : (hit, 1);
             }
         }
 
         private bool IsTrusted(RawHit hit) =>
-            !IsWeak(hit) || (_votes.TryGetValue(Key(hit), out var v) && v.Count >= 2);
+            !IsWeak(hit) || (_votes.TryGetValue(hit.Key, out var v) && v.Count >= 2);
 
         /// <summary>
         /// The hits of the latest pass that can be trusted, plus weakly checked codes it confirmed that an
@@ -204,7 +206,7 @@ internal sealed class ZxingDecoder
             var result = pass.FindAll(IsTrusted);
             if (result.Count == 0) return result;
             foreach (var (hit, count) in _votes.Values)
-                if (count >= 2 && !result.Exists(h => Key(h) == Key(hit)))
+                if (count >= 2 && !result.Exists(h => h.Key == hit.Key))
                     result.Add(hit);
             return result;
         }
@@ -236,7 +238,7 @@ internal sealed class ZxingDecoder
         }
 
         // A window a few modules wide: wide enough to span the widest bar, small enough to follow shadows.
-        var window = Clamp(maxSide / 20, 15, 81);
+        var window = ImageFilters.Clamp(maxSide / 20, 15, 81);
         yield return DecodeVariant(ImageFilters.AdaptiveThreshold(normalized, window), toImage, ballot);
 
         // Sensor noise, JPEG artefacts and specks.
@@ -247,14 +249,15 @@ internal sealed class ZxingDecoder
             // Heavy noise on 1D codes: average along the bars only, so neighbouring bars stay apart.
             var along = Math.Max(3, maxSide / 100);
             var pad = PadFor(work);
+            var map = toImage.After(Map(1, pad));
             var upright = ImageFilters.BoxBlur(normalized, 0, along).Pad(pad);
-            var hits = Run(upright, hybrid: true, toImage.After(Map(1, pad)), _linearFormats, _options.ReadMultiple);
-            Recheck(upright, toImage.After(Map(1, pad)), hits, ballot);
+            var hits = Run(upright, hybrid: true, map, _linearFormats, _options.ReadMultiple);
+            Recheck(upright, map, hits, ballot);
             if (_options.AutoRotate)
             {
                 var sideways = ImageFilters.BoxBlur(normalized, along, 0).Pad(pad);
-                var sidewaysHits = RunRotated(sideways, toImage.After(Map(1, pad)));
-                Recheck(sideways, toImage.After(Map(1, pad)), sidewaysHits, ballot);
+                var sidewaysHits = RunRotated(sideways, map);
+                Recheck(sideways, map, sidewaysHits, ballot);
                 hits.AddRange(sidewaysHits);
             }
             yield return hits;
@@ -270,9 +273,10 @@ internal sealed class ZxingDecoder
             {
                 var rotated = ImageFilters.Rotate(normalized, angle, out var toWork);
                 var pad = PadFor(rotated);
+                var prepared = rotated.Pad(pad);
                 var map = toImage.After(toWork).After(Map(1, pad));
-                var hits = Run(rotated.Pad(pad), hybrid: true, map, _rowScanFormats, _options.ReadMultiple);
-                Recheck(rotated.Pad(pad), map, hits, ballot);
+                var hits = Run(prepared, hybrid: true, map, _rowScanFormats, _options.ReadMultiple);
+                Recheck(prepared, map, hits, ballot);
                 yield return hits;
             }
         }
@@ -388,50 +392,52 @@ internal sealed class ZxingDecoder
     private static List<RawHit> RemoveOverlaps(List<RawHit> hits)
     {
         if (hits.Count < 2) return hits;
-        var ordered = new List<(RawHit Hit, float MinX, float MinY, float MaxX, float MaxY, float Size)>();
-        foreach (var hit in hits)
+        var ordered = hits.ConvertAll(Box.Around);
+        ordered.Sort((a, b) => b.Size.CompareTo(a.Size));
+
+        var kept = new List<Box>();
+        var seen = new HashSet<string>();
+        foreach (var box in ordered)
         {
-            if (hit.Points.Length == 0) { ordered.Add((hit, 0, 0, 0, 0, -1)); continue; }
+            if (!seen.Add(box.Hit.Key)) continue;
+            if (box.Size >= 0 && (kept.Exists(box.CentreLiesIn) || IsFragmentOfKept(box.Hit, kept))) continue;
+            kept.Add(box);
+        }
+
+        // Restore discovery order.
+        return hits.FindAll(hit => kept.Exists(k => ReferenceEquals(k.Hit.Points, hit.Points)));
+    }
+
+    /// <summary>A hit with the bounding box of its points; <see cref="Size"/> is -1 when it has no points.</summary>
+    private readonly struct Box(RawHit hit, float minX, float minY, float maxX, float maxY, float size)
+    {
+        public RawHit Hit { get; } = hit;
+        public float MinX { get; } = minX;
+        public float MinY { get; } = minY;
+        public float MaxX { get; } = maxX;
+        public float MaxY { get; } = maxY;
+        public float Size { get; } = size;
+
+        public static Box Around(RawHit hit)
+        {
+            if (hit.Points.Length == 0) return new Box(hit, 0, 0, 0, 0, -1);
             float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
             foreach (var p in hit.Points)
             {
                 minX = Math.Min(minX, p.X); maxX = Math.Max(maxX, p.X);
                 minY = Math.Min(minY, p.Y); maxY = Math.Max(maxY, p.Y);
             }
-            ordered.Add((hit, minX, minY, maxX, maxY, Math.Max(maxX - minX, maxY - minY)));
+            return new Box(hit, minX, minY, maxX, maxY, Math.Max(maxX - minX, maxY - minY));
         }
-        ordered.Sort((a, b) => b.Size.CompareTo(a.Size));
 
-        var kept = new List<(RawHit Hit, float MinX, float MinY, float MaxX, float MaxY, float Size)>();
-        var seen = new HashSet<string>();
-        foreach (var h in ordered)
+        /// <summary>Whether this box's centre lies inside <paramref name="other"/>, with a small margin.</summary>
+        public bool CentreLiesIn(Box other)
         {
-            if (!seen.Add(h.Hit.Format + "\n" + h.Hit.Text)) continue;
-            if (h.Size >= 0)
-            {
-                float cx = (h.MinX + h.MaxX) / 2, cy = (h.MinY + h.MaxY) / 2;
-                var inside = false;
-                foreach (var (_, minX, minY, maxX, maxY, size) in kept)
-                {
-                    if (size <= 0) continue;
-                    var margin = Math.Max(10, size / 10);
-                    if (cx >= minX - margin && cx <= maxX + margin && cy >= minY - margin && cy <= maxY + margin)
-                    {
-                        inside = true;
-                        break;
-                    }
-                }
-                if (inside || IsFragmentOfKept(h.Hit, kept)) continue;
-            }
-            kept.Add(h);
+            if (other.Size <= 0) return false;
+            float cx = (MinX + MaxX) / 2, cy = (MinY + MaxY) / 2;
+            var margin = Math.Max(10, other.Size / 10);
+            return cx >= other.MinX - margin && cx <= other.MaxX + margin && cy >= other.MinY - margin && cy <= other.MaxY + margin;
         }
-
-        // Restore discovery order.
-        var result = new List<RawHit>(kept.Count);
-        foreach (var hit in hits)
-            foreach (var (keptHit, _, _, _, _, _) in kept)
-                if (ReferenceEquals(keptHit.Points, hit.Points)) { result.Add(hit); break; }
-        return result;
     }
 
     /// <summary>Crops each ink blob that no barcode has been found in yet and looks for Data Matrix / Aztec there.</summary>
@@ -444,7 +450,7 @@ internal sealed class ZxingDecoder
         var regions = RegionFinder.Find(image, MaxRegions);
         if (regions.Count <= 1 && found.Count > 0) yield break;
         var seen = new HashSet<string>();
-        foreach (var h in found) seen.Add(h.Format + "\n" + h.Text);
+        foreach (var h in found) seen.Add(h.Key);
         var taken = new List<RawHit>(found);
         var inImage = new List<RawHit>();
 
@@ -468,7 +474,7 @@ internal sealed class ZxingDecoder
                 inImage.Add(local);
                 var hit = local.Transform(toImage);
                 taken.Add(hit);
-                if (seen.Add(hit.Format + "\n" + hit.Text)) yield return hit;
+                if (seen.Add(hit.Key)) yield return hit;
             }
             if (!_options.ReadMultiple && taken.Count > found.Count) yield break;
         }
@@ -495,7 +501,7 @@ internal sealed class ZxingDecoder
         return (scaled.Pad(pad), Map(scale, pad));
     }
 
-    private static int PadFor(GrayImage image) => Clamp(Math.Max(image.Width, image.Height) / 8, 16, 160);
+    private static int PadFor(GrayImage image) => ImageFilters.Clamp(Math.Max(image.Width, image.Height) / 8, 16, 160);
 
     /// <summary>Maps a bitmap that was scaled by <paramref name="scale"/> and then padded back to the original.</summary>
     private static Affine Map(double scale, int pad) => new(1 / scale, 0, -pad / scale, 0, 1 / scale, -pad / scale);
@@ -510,11 +516,12 @@ internal sealed class ZxingDecoder
     /// True when a fragment-prone 1D hit lies along a longer 1D hit's scan line, within the height its bars
     /// plausibly have.
     /// </summary>
-    private static bool IsFragmentOfKept(RawHit hit, List<(RawHit Hit, float MinX, float MinY, float MaxX, float MaxY, float Size)> kept)
+    private static bool IsFragmentOfKept(RawHit hit, List<Box> kept)
     {
         if ((hit.Format & FragmentProne) == 0 || hit.Points.Length != 2) return false;
-        foreach (var (keptHit, _, _, _, _, _) in kept)
+        foreach (var box in kept)
         {
+            var keptHit = box.Hit;
             if ((keptHit.Format & BarcodeFormat.AllLinear) == 0 || keptHit.Points.Length != 2) continue;
             var a = keptHit.Points[0];
             var b = keptHit.Points[1];
@@ -565,10 +572,8 @@ internal sealed class ZxingDecoder
                 results = single == null ? null : [single];
             }
         }
-        catch (Exception ex) when (ex is IndexOutOfRangeException || ex is ArgumentException || ex is NullReferenceException || ex is InvalidOperationException)
+        catch (Exception ex) when (IsZxingFailure(ex))
         {
-            // ZXing's detectors occasionally index outside the bitmap on unusual input. Treat that pass as
-            // having found nothing rather than failing the whole read.
             return [];
         }
 
@@ -584,11 +589,7 @@ internal sealed class ZxingDecoder
             if (r == null || r.Text == null) continue;
             var format = FromZxing(r.BarcodeFormat);
             if (format == BarcodeFormat.None) continue;
-            var points = new List<BarcodePoint>(r.ResultPoints?.Length ?? 0);
-            if (r.ResultPoints != null)
-                foreach (var p in r.ResultPoints)
-                    if (p != null) points.Add(ToPoint(map, p.X, p.Y));
-            hits.Add(new RawHit(r.Text, format, r.RawBytes, [.. points]));
+            hits.Add(new RawHit(r.Text, format, r.RawBytes, ToPoints(map, r.ResultPoints)));
         }
         return hits;
     }
@@ -609,24 +610,34 @@ internal sealed class ZxingDecoder
             if (detected == null) return null;
             var result = QrLogoDecoder.Decode(detected.Bits, hints);
             if (result?.Text == null) return null;
-            var points = new List<BarcodePoint>();
-            foreach (var p in detected.Points)
-                if (p != null) points.Add(ToPoint(map, p.X, p.Y));
-            return new RawHit(result.Text, BarcodeFormat.QrCode, result.RawBytes, [.. points]);
+            return new RawHit(result.Text, BarcodeFormat.QrCode, result.RawBytes, ToPoints(map, detected.Points));
         }
-        catch (Exception ex) when (ex is IndexOutOfRangeException || ex is ArgumentException || ex is NullReferenceException || ex is InvalidOperationException)
+        catch (Exception ex) when (IsZxingFailure(ex))
         {
             return null;
         }
     }
 
-    private static BarcodePoint ToPoint(Affine map, double x, double y)
-    {
-        map.Apply(x, y, out var rx, out var ry);
-        return new BarcodePoint((float)rx, (float)ry);
-    }
+    /// <summary>
+    /// ZXing's detectors occasionally index outside the bitmap or trip over their own state on unusual input.
+    /// Such a pass counts as having found nothing rather than failing the whole read.
+    /// </summary>
+    private static bool IsZxingFailure(Exception ex) =>
+        ex is IndexOutOfRangeException or ArgumentException or NullReferenceException or InvalidOperationException;
 
-    private static int Clamp(int v, int min, int max) => v < min ? min : v > max ? max : v;
+    /// <summary>Maps ZXing's result points to the caller's image, skipping missing ones.</summary>
+    private static BarcodePoint[] ToPoints(Affine map, ResultPoint[]? points)
+    {
+        var result = new List<BarcodePoint>(points?.Length ?? 0);
+        if (points != null)
+            foreach (var p in points)
+            {
+                if (p == null) continue;
+                map.Apply(p.X, p.Y, out var x, out var y);
+                result.Add(new BarcodePoint((float)x, (float)y));
+            }
+        return [.. result];
+    }
 
     private static readonly (BarcodeFormat Ours, ZxFormat Theirs)[] FormatMap =
     [

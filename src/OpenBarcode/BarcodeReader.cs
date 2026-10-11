@@ -75,7 +75,7 @@ public sealed class BarcodeReader
         var decoder = new ZxingDecoder(_options);
         var results = new ResultSet();
         for (var i = 0; i < frames.Count; i++)
-            results.AddAll(decoder.Decode(frames[i], _options.EnhancePoorImages), BarcodeSource.Image, null, frames.Count > 1 ? i : (int?)null);
+            results.AddAll(decoder.Decode(frames[i], _options.EnhancePoorImages), BarcodeSource.Image, null, frames.Count > 1 ? i : null);
         return results.ToList();
     }
 
