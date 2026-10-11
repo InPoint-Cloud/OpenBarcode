@@ -78,7 +78,12 @@ internal sealed class ZxingDecoder
             {
                 // Noise and texture can pass for a short 1D code. Keep such a read only if a second look,
                 // with a different binarizer and corrected lighting, finds it too.
-                ballot.Add(hits);
+                // A read that does not repeat on a line beside it gets no vote here; a short code made up from
+                // the texture of another code gets none anywhere.
+                var repeated = hits.FindAll(h => !IsWeak(h) || RepeatsOnParallelLine(image, h));
+                foreach (var hit in hits)
+                    if ((hit.Format & ShortRetail) != 0 && !repeated.Contains(hit)) ballot.Reject(hit);
+                ballot.Add(repeated);
                 ballot.Add(SecondOpinion(image));
                 hits = ballot.Trusted(hits);
             }
@@ -144,6 +149,9 @@ internal sealed class ZxingDecoder
     private static bool IsWeak(RawHit hit) =>
         (hit.Format & WeaklyChecked) != 0 || ((hit.Format & VariableLength) != 0 && hit.Text.Length <= 2);
 
+    /// <summary>Weakly checked codes so short that the texture of a 2D code or of a tilted 1D code passes for one.</summary>
+    private const BarcodeFormat ShortRetail = BarcodeFormat.UpcE | BarcodeFormat.Ean8;
+
     /// <summary>Weakly checked codes wide enough for <see cref="Recheck"/> to tell their bars from texture.</summary>
     private const BarcodeFormat LongRetail = BarcodeFormat.Ean13 | BarcodeFormat.UpcA;
 
@@ -194,8 +202,13 @@ internal sealed class ZxingDecoder
             }
         }
 
+        private readonly HashSet<string> _rejected = [];
+
+        /// <summary>Never trusts this code, however many passes read it.</summary>
+        public void Reject(RawHit hit) => _rejected.Add(hit.Key);
+
         private bool IsTrusted(RawHit hit) =>
-            !IsWeak(hit) || (_votes.TryGetValue(hit.Key, out var v) && v.Count >= 2);
+            !IsWeak(hit) || (!_rejected.Contains(hit.Key) && _votes.TryGetValue(hit.Key, out var v) && v.Count >= 2);
 
         /// <summary>
         /// The hits of the latest pass that can be trusted, plus weakly checked codes it confirmed that an
@@ -206,7 +219,7 @@ internal sealed class ZxingDecoder
             var result = pass.FindAll(IsTrusted);
             if (result.Count == 0) return result;
             foreach (var (hit, count) in _votes.Values)
-                if (count >= 2 && !result.Exists(h => h.Key == hit.Key))
+                if (count >= 2 && !_rejected.Contains(hit.Key) && !result.Exists(h => h.Key == hit.Key))
                     result.Add(hit);
             return result;
         }
@@ -231,10 +244,13 @@ internal sealed class ZxingDecoder
         // ZXing's Aztec and PDF417 detectors give up beyond about 10 degrees of tilt, and 1D readers beyond
         // about 15. Turn the picture so the symbol's edges line up with the axes.
         var tilt = ImageFilters.DominantAngle(normalized, out var confidence);
+        var level = normalized;
+        var levelToImage = toImage;
         if (Math.Abs(tilt) >= MinDeskewAngle && confidence >= MinDeskewConfidence)
         {
-            var level = ImageFilters.Rotate(normalized, -tilt, out var toWork);
-            yield return DecodeVariant(level, toImage.After(toWork), ballot);
+            level = ImageFilters.Rotate(normalized, -tilt, out var toWork);
+            levelToImage = toImage.After(toWork);
+            yield return DecodeVariant(level, levelToImage, ballot);
         }
 
         // A window a few modules wide: wide enough to span the widest bar, small enough to follow shadows.
@@ -245,23 +261,7 @@ internal sealed class ZxingDecoder
         yield return DecodeVariant(ImageFilters.GaussianBlur(ImageFilters.Median3(normalized), 1.0), toImage, ballot);
 
         if (_linearFormats.Count > 0)
-        {
-            // Heavy noise on 1D codes: average along the bars only, so neighbouring bars stay apart.
-            var along = Math.Max(3, maxSide / 100);
-            var pad = PadFor(work);
-            var map = toImage.After(Map(1, pad));
-            var upright = ImageFilters.BoxBlur(normalized, 0, along).Pad(pad);
-            var hits = Run(upright, hybrid: true, map, _linearFormats, _options.ReadMultiple);
-            Recheck(upright, map, hits, ballot);
-            if (_options.AutoRotate)
-            {
-                var sideways = ImageFilters.BoxBlur(normalized, along, 0).Pad(pad);
-                var sidewaysHits = RunRotated(sideways, map);
-                Recheck(sideways, map, sidewaysHits, ballot);
-                hits.AddRange(sidewaysHits);
-            }
-            yield return hits;
-        }
+            yield return DecodeAlongBars(level, levelToImage, ballot);
 
         // Out of focus: steepen the edges.
         yield return DecodeVariant(ImageFilters.Sharpen(normalized, 2.0, 1.5f), toImage, ballot);
@@ -280,6 +280,160 @@ internal sealed class ZxingDecoder
                 yield return hits;
             }
         }
+    }
+
+    /// <summary>
+    /// Heavy noise on 1D codes: averages along the bars only, so neighbouring bars stay apart, then reads the
+    /// averaged picture, and its rows thresholded midway between their local extremes. ZXing's own row
+    /// binarizer sharpens each row, which brings the noise back, and its threshold drifts towards black when
+    /// blur and ink spread narrow the gaps between bars.
+    /// </summary>
+    private List<RawHit> DecodeAlongBars(GrayImage image, Affine toImage, Ballot ballot)
+    {
+        var maxSide = Math.Max(image.Width, image.Height);
+        var along = Math.Max(3, maxSide / 100);
+        var window = ImageFilters.Clamp(maxSide / 25, 15, 81);
+
+        var hits = new List<RawHit>();
+        var confirmed = new List<RawHit>();
+        ReadAlongRows(ImageFilters.BoxBlur(image, 0, along), toImage, along, window, hits, confirmed);
+        if (_options.AutoRotate)
+        {
+            // Bars lying horizontally: the same on the picture turned a quarter clockwise.
+            var sideways = ImageFilters.BoxBlur(image, along, 0).RotateClockwise();
+            var unrotate = new Affine(0, 1, 0, -1, 0, image.Height - 1);
+            ReadAlongRows(sideways, toImage.After(unrotate), along, window, hits, confirmed);
+        }
+
+        // Averaging along bars that fan out in a photo taken at an angle merges thin gaps differently across
+        // the code, which can turn a few digits into others that still pass the check digit. When the same
+        // place reads as two different codes, neither is trusted.
+        var disputed = hits.FindAll(h => IsWeak(h) && hits.Exists(o => o.Format == h.Format && o.Text != h.Text && Overlap(o, h)));
+        hits.RemoveAll(disputed.Contains);
+        confirmed.RemoveAll(disputed.Contains);
+        ballot.Add(confirmed);
+        return hits;
+    }
+
+    private void ReadAlongRows(GrayImage averaged, Affine toImage, int along, int window, List<RawHit> hits, List<RawHit> confirmed)
+    {
+        var (grey, toAveraged) = Prepare(averaged);
+        var map = toImage.After(toAveraged);
+        // Rows this far apart were averaged from different pixels, so they are independent looks at the bars.
+        var apart = (int)Math.Ceiling((2 * along + 2) / toAveraged.A);
+        var found = Run(grey, hybrid: true, map, _linearFormats, _options.ReadMultiple);
+        confirmed.AddRange(ConfirmOnOtherRows(grey, map, found, apart));
+        if (found.Count == 0 || _options.ReadMultiple)
+        {
+            // Thresholded at the picture's own size, then enlarged like the grey one, so thin bars keep their width.
+            var minRange = (int)Math.Max(16, 4 * ImageFilters.NoiseLevel(averaged));
+            var (binary, _) = Prepare(ImageFilters.RowMidrangeThreshold(averaged, window, minRange));
+            var more = Run(binary, hybrid: true, map, _linearFormats, _options.ReadMultiple);
+            confirmed.AddRange(ConfirmOnOtherRows(binary, map, more, apart));
+            found.AddRange(more);
+        }
+        hits.AddRange(found);
+    }
+
+    /// <summary>
+    /// The weakly checked reads that a band of rows <paramref name="apart"/> pixels above or below the row they
+    /// were read on gives again. A misread from noise does not repeat on rows averaged from other pixels, and
+    /// neither does a code made up from texture; real bars do.
+    /// </summary>
+    private List<RawHit> ConfirmOnOtherRows(GrayImage prepared, Affine map, List<RawHit> hits, int apart)
+    {
+        var toPrepared = map.Inverse();
+        var confirmed = new List<RawHit>();
+        foreach (var claim in hits)
+        {
+            if (!IsWeak(claim) || claim.Points.Length != 2) continue;
+            toPrepared.Apply(claim.Points[0].X, claim.Points[0].Y, out _, out var y0);
+            toPrepared.Apply(claim.Points[1].X, claim.Points[1].Y, out _, out var y1);
+            var row = (int)Math.Round((y0 + y1) / 2);
+            foreach (var side in new[] { -apart, apart })
+            {
+                // Rows from half the distance to one and a half times it, none of them averaged with the read row.
+                var band = RowBand(prepared, row + side, apart / 2);
+                if (band == null) continue;
+                var again = Run(band, hybrid: true, Affine.Identity, _linearFormats, multiple: true);
+                if (again.Exists(a => a.Format == claim.Format && a.Text == claim.Text))
+                {
+                    confirmed.Add(claim);
+                    break;
+                }
+            }
+        }
+        return confirmed;
+    }
+
+    /// <summary>
+    /// Whether a 1D read repeats on a line parallel to the one it was read on, a little to either side. Real
+    /// bars carry on across the code; the texture of a 2D code, or of a tilted 1D code read the wrong way,
+    /// changes from one module row to the next, and the same line read again with another binarizer would
+    /// just repeat the false read.
+    /// </summary>
+    private bool RepeatsOnParallelLine(GrayImage image, RawHit claim)
+    {
+        if (claim.Points.Length < 2) return true;
+        // The ends of the code: the two points farthest apart (an EAN with an add-on has four).
+        var (a, b) = (claim.Points[0], claim.Points[1]);
+        foreach (var p in claim.Points)
+            foreach (var q in claim.Points)
+                if (Distance(p, q) > Distance(a, b)) (a, b) = (p, q);
+        double x0 = a.X, y0 = a.Y, x1 = b.X, y1 = b.Y, length = Distance(a, b);
+        if (length < 20) return true;
+        // Not so far that the line leaves a tilted code read along a row, nor so near that the strip takes in the row read.
+        var offset = Math.Max(StripRows / 2 + 1, ParallelLineOffset * length);
+        foreach (var side in new[] { -offset, offset })
+        {
+            var strip = ImageFilters.Strip(image, x0, y0, x1, y1, side, StripRows, StripMargin * length);
+            var again = Run(strip, hybrid: true, Affine.Identity, _linearFormats, multiple: true);
+            if (again.Exists(h => h.Format == claim.Format && h.Text == claim.Text)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>How far to either side <see cref="RepeatsOnParallelLine"/> looks, as a share of the code's width.</summary>
+    private const double ParallelLineOffset = 0.015;
+
+    private static double Distance(BarcodePoint a, BarcodePoint b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
+
+    /// <summary>Room left beyond each end of the parallel line for the quiet zone, as a share of the code's width.</summary>
+    private const double StripMargin = 0.2;
+
+    private const int StripRows = 15;
+
+    /// <summary>Whether the bounding boxes of two hits' points overlap.</summary>
+    private static bool Overlap(RawHit a, RawHit b)
+    {
+        Bounds(a, out var ax0, out var ay0, out var ax1, out var ay1);
+        Bounds(b, out var bx0, out var by0, out var bx1, out var by1);
+        // 1D hits are a line; give them some height so hits on nearby rows of the same code meet.
+        var slack = Math.Max(Math.Max(ax1 - ax0, ay1 - ay0), Math.Max(bx1 - bx0, by1 - by0)) / 4;
+        return ax0 - slack <= bx1 && bx0 - slack <= ax1 && ay0 - slack <= by1 && by0 - slack <= ay1;
+    }
+
+    private static void Bounds(RawHit hit, out float x0, out float y0, out float x1, out float y1)
+    {
+        x0 = y0 = float.MaxValue;
+        x1 = y1 = float.MinValue;
+        foreach (var p in hit.Points)
+        {
+            x0 = Math.Min(x0, p.X);
+            y0 = Math.Min(y0, p.Y);
+            x1 = Math.Max(x1, p.X);
+            y1 = Math.Max(y1, p.Y);
+        }
+    }
+
+    /// <summary>Rows <paramref name="centre"/> ± <paramref name="half"/> of an image, or null if outside it.</summary>
+    private static GrayImage? RowBand(GrayImage image, int centre, int half)
+    {
+        int top = centre - half, bottom = centre + half + 1;
+        if (top < 0 || bottom > image.Height) return null;
+        var pixels = new byte[(bottom - top) * image.Width];
+        Array.Copy(image.Pixels, top * image.Width, pixels, 0, pixels.Length);
+        return new GrayImage(image.Width, bottom - top, pixels);
     }
 
     /// <summary>One clean-up variant: the full pass, the sideways 1D pass and the 2D region search.</summary>
@@ -334,7 +488,7 @@ internal sealed class ZxingDecoder
             var line = Profile(prepared, x0, y0, x1, y1, 0);
             foreach (var side in BarContinuity)
             {
-                if (Correlation(line, Profile(prepared, x0, y0, x1, y1, side * length)) >= MinBarCorrelation)
+                if (Continuity(prepared, line, x0, y0, x1, y1, side * length) >= MinBarCorrelation)
                 {
                     confirmed.Add(claim);
                     break;
@@ -349,12 +503,37 @@ internal sealed class ZxingDecoder
 
     private const double MinBarCorrelation = 0.75;
 
+    /// <summary>
+    /// Best correlation between <paramref name="line"/> and the line moved sideways by <paramref name="offset"/>
+    /// pixels, letting each end of the moved line slide a little along it: in a photo taken at an angle the
+    /// bars fan out, so they shift and spread from one row to the next.
+    /// </summary>
+    private static double Continuity(GrayImage image, double[] line, double x0, double y0, double x1, double y1, double offset)
+    {
+        double dx = x1 - x0, dy = y1 - y0, length = Math.Sqrt(dx * dx + dy * dy);
+        double ux = dx / length, uy = dy / length;
+        var step = length * EndSlide / SlideSteps;
+        var best = double.MinValue;
+        for (var a = -SlideSteps; a <= SlideSteps; a++)
+            for (var b = -SlideSteps; b <= SlideSteps; b++)
+            {
+                var moved = Profile(image, x0 + a * step * ux, y0 + a * step * uy, x1 + b * step * ux, y1 + b * step * uy, offset, line.Length);
+                best = Math.Max(best, Correlation(line, moved));
+            }
+        return best;
+    }
+
+    /// <summary>How far each end may slide, as a share of the code's width, and in how many steps each way.</summary>
+    private const double EndSlide = 0.015;
+
+    private const int SlideSteps = 4;
+
     /// <summary>Grey values along a line, moved sideways by <paramref name="offset"/> pixels.</summary>
-    private static double[] Profile(GrayImage image, double x0, double y0, double x1, double y1, double offset)
+    private static double[] Profile(GrayImage image, double x0, double y0, double x1, double y1, double offset, int count = 0)
     {
         double dx = x1 - x0, dy = y1 - y0, length = Math.Sqrt(dx * dx + dy * dy);
         double nx = -dy / length * offset, ny = dx / length * offset;
-        var count = (int)length;
+        if (count == 0) count = (int)length;
         var values = new double[count];
         for (var i = 0; i < count; i++)
         {
@@ -560,7 +739,7 @@ internal sealed class ZxingDecoder
         if (results == null) return hits;
         foreach (var r in results)
         {
-            if (r == null || r.Text == null) continue;
+            if (r == null || string.IsNullOrEmpty(r.Text)) continue;
             var format = FromZxing(r.BarcodeFormat);
             if (format == BarcodeFormat.None) continue;
             hits.Add(new RawHit(r.Text, format, r.RawBytes, ToPoints(map, r.ResultPoints)));
