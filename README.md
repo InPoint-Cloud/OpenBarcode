@@ -101,6 +101,7 @@ was decoded from), `Source` (`Image`, `PdfImage`, `PdfVector`), `PageNumber` (PD
 ```
 dotnet run --project src/OpenBarcode.Cli -- invoice.pdf scans/*.tif
 dotnet run --project src/OpenBarcode.Cli -- --json --formats qr,datamatrix label.png
+openbarcode -j 0 scans/*.pdf   # read a batch on every core; output keeps the order of the files
 ```
 
 Run with `--help` for all options. Output is `file[:page]<TAB>format<TAB>text`; the exit code is 0 when

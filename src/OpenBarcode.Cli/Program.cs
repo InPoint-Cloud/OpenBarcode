@@ -21,6 +21,8 @@ const string Usage = """
           --no-images        Do not decode images embedded in PDFs.
           --no-vectors       Do not render PDF vector graphics.
           --password <pw>    Password for encrypted PDFs.
+      -j, --parallel <n>     Read n files at the same time; 0 uses every processor core (default 1).
+                             Output stays in the order the files were given.
       -v, --verbose          Report skipped PDF images and timing on stderr.
       -h, --help             Show this help.
 
@@ -51,18 +53,21 @@ catch (Exception ex) when (ex is ArgumentException or FormatException)
 var report = new List<object>();
 int found = 0, failed = 0;
 
-foreach (var file in command.Files)
+// Files are read in parallel when asked, but their output is printed in the order they were given.
+var outcomes = command.Files
+    .AsParallel()
+    .AsOrdered()
+    .WithDegreeOfParallelism(command.Parallelism)
+    .WithMergeOptions(ParallelMergeOptions.NotBuffered)
+    .Select(file => ReadFile(reader, file, command));
+
+foreach (var outcome in outcomes)
 {
-    try
-    {
-        found += ReadFile(reader, file, command, report);
-    }
-    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or InvalidDataException
-                                   or UglyToad.PdfPig.Core.PdfDocumentFormatException)
-    {
-        failed++;
-        Console.Error.WriteLine($"{file}: {ex.Message}");
-    }
+    foreach (var line in outcome.Errors) Console.Error.WriteLine(line);
+    foreach (var line in outcome.Lines) Console.WriteLine(line);
+    report.AddRange(outcome.Json);
+    found += outcome.Found;
+    if (outcome.Failed) failed++;
 }
 
 if (command.Json)
@@ -71,29 +76,39 @@ if (command.Json)
 if (failed > 0) return 2;
 return found > 0 ? 0 : 1;
 
-/// <summary>Reads one file and prints its barcodes, or adds them to the JSON report.</summary>
-/// <returns>The number of barcodes found.</returns>
-static int ReadFile(BarcodeReader reader, string file, CommandLine command, List<object> report)
+/// <summary>Reads one file and collects what to print for it.</summary>
+static FileOutcome ReadFile(BarcodeReader reader, string file, CommandLine command)
 {
-    var watch = Stopwatch.StartNew();
-    var data = File.ReadAllBytes(file);
-    var warnings = new List<string>();
-    var results = reader.Read(data, warnings);
-
-    if (command.Verbose)
+    var outcome = new FileOutcome();
+    try
     {
-        foreach (var w in warnings) Console.Error.WriteLine($"{file}: {w}");
-        Console.Error.WriteLine($"{file}: {results.Count} barcode(s) in {watch.ElapsedMilliseconds} ms");
-    }
+        var watch = Stopwatch.StartNew();
+        var data = File.ReadAllBytes(file);
+        var warnings = new List<string>();
+        var results = reader.Read(data, warnings);
 
-    foreach (var r in results)
-    {
-        if (command.Json)
-            report.Add(ToJson(file, r));
-        else
-            Console.WriteLine($"{Where(file, r)}\t{r.Format}\t{r.Text}");
+        if (command.Verbose)
+        {
+            foreach (var w in warnings) outcome.Errors.Add($"{file}: {w}");
+            outcome.Errors.Add($"{file}: {results.Count} barcode(s) in {watch.ElapsedMilliseconds} ms");
+        }
+
+        foreach (var r in results)
+        {
+            if (command.Json)
+                outcome.Json.Add(ToJson(file, r));
+            else
+                outcome.Lines.Add($"{Where(file, r)}\t{r.Format}\t{r.Text}");
+        }
+        outcome.Found = results.Count;
     }
-    return results.Count;
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException or InvalidDataException
+                                   or UglyToad.PdfPig.Core.PdfDocumentFormatException)
+    {
+        outcome.Failed = true;
+        outcome.Errors.Add($"{file}: {ex.Message}");
+    }
+    return outcome;
 }
 
 static object ToJson(string file, BarcodeResult r) => new
@@ -115,6 +130,20 @@ static string Where(string file, BarcodeResult r)
     return file;
 }
 
+/// <summary>What one file produced: output lines, messages for stderr and JSON entries.</summary>
+internal sealed class FileOutcome
+{
+    public List<string> Lines { get; } = [];
+
+    public List<string> Errors { get; } = [];
+
+    public List<object> Json { get; } = [];
+
+    public int Found { get; set; }
+
+    public bool Failed { get; set; }
+}
+
 /// <summary>The parsed command line.</summary>
 internal sealed class CommandLine
 {
@@ -125,6 +154,9 @@ internal sealed class CommandLine
     public bool Json { get; private set; }
 
     public bool Verbose { get; private set; }
+
+    /// <summary>How many files to read at the same time.</summary>
+    public int Parallelism { get; private set; } = 1;
 
     /// <summary>Whether help was asked for; the remaining arguments are then left unparsed.</summary>
     public bool Help { get; private set; }
@@ -160,6 +192,7 @@ internal sealed class CommandLine
             case "--no-images": Options.PdfReadImages = false; break;
             case "--no-vectors": Options.PdfReadVectorGraphics = false; break;
             case "--password": Options.PdfPassword = next(); break;
+            case "-j" or "--parallel": Parallelism = ParseParallelism(next()); break;
             case "-v" or "--verbose": Verbose = true; break;
             default:
                 if (a.StartsWith('-') && a.Length > 1) throw new ArgumentException($"Unknown option {a}.");
@@ -173,6 +206,14 @@ internal sealed class CommandLine
         var range = value.Split('-');
         Options.PdfFirstPage = ParseInt(range[0]);
         Options.PdfLastPage = ParseInt(range.Length > 1 ? range[1] : range[0]);
+    }
+
+    /// <summary>A number of files to read at once; 0 means one per processor core.</summary>
+    private static int ParseParallelism(string value)
+    {
+        var n = ParseInt(value);
+        if (n < 0 || n > 512) throw new ArgumentException("--parallel must be between 0 and 512.");
+        return n == 0 ? Environment.ProcessorCount : n;
     }
 
     private static int ParseInt(string value) => int.Parse(value, NumberStyles.Integer, CultureInfo.InvariantCulture);

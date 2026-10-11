@@ -12,6 +12,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   page is read, so long documents show results early and can be stopped partway.
 - Every `Read` method has an overload that takes a `CancellationToken`. It is checked between pages and before every
   decoding pass, so even a slow search over a single image stops promptly.
+- `-j`/`--parallel <n>` in the CLI reads several files at the same time (`0` uses every core). Output stays in the
+  order the files were given. Seven sample files take 20 s instead of 50 s on four cores.
 - `tests/OpenBarcode.Benchmark`, a detection benchmark of 462 simulated poor pictures and 24 without a barcode.
   CI fails when a change reads fewer pictures or makes more wrong reads.
 
