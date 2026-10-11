@@ -31,9 +31,9 @@ bool json = false, verbose = false;
 
 try
 {
-    for (int i = 0; i < args.Length; i++)
+    for (var i = 0; i < args.Length; i++)
     {
-        string a = args[i];
+        var a = args[i];
         string Next() => ++i < args.Length ? args[i] : throw new ArgumentException($"{a} needs a value.");
         switch (a)
         {
@@ -105,7 +105,7 @@ foreach (var file in files)
             }
             else
             {
-                string where = r.PageNumber.HasValue ? $"{file}:{r.PageNumber}" : r.FrameIndex.HasValue ? $"{file}#{r.FrameIndex}" : file;
+                var where = r.PageNumber.HasValue ? $"{file}:{r.PageNumber}" : r.FrameIndex.HasValue ? $"{file}#{r.FrameIndex}" : file;
                 Console.WriteLine($"{where}\t{r.Format}\t{r.Text}");
             }
         }
@@ -128,7 +128,7 @@ static BarcodeFormat ParseFormats(string list)
     var result = BarcodeFormat.None;
     foreach (var raw in list.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
     {
-        string name = raw.Replace("-", "").Replace("_", "").ToLowerInvariant();
+        var name = raw.Replace("-", "").Replace("_", "").ToLowerInvariant();
         result |= name switch
         {
             "all" => BarcodeFormat.All,

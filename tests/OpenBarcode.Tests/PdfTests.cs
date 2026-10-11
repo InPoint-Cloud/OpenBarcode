@@ -7,6 +7,7 @@ namespace InPoint.Cloud.OpenBarcode.Tests;
 public class PdfTests
 {
     private static readonly BarcodeReader Reader = new();
+    private static readonly string[] PdfPageTexts = ["page 1", "page 2", "page 3"];
 
     private static byte[] SinglePage(Action<MiniPdf, MiniPdf.PageBuilder> draw)
     {
@@ -132,7 +133,7 @@ public class PdfTests
     public void Reports_page_numbers_across_a_multipage_document()
     {
         var pdf = new MiniPdf();
-        for (int i = 1; i <= 3; i++)
+        for (var i = 1; i <= 3; i++)
         {
             var page = new MiniPdf.PageBuilder();
             page.FilledBarcode(Fixtures.Matrix(ZxFormat.QR_CODE, $"page {i}"), 100, 500, module: 3);
@@ -141,7 +142,7 @@ public class PdfTests
         var data = pdf.Build();
 
         var results = Reader.Read(data);
-        Assert.Equal(new[] { "page 1", "page 2", "page 3" }, results.Select(r => r.Text));
+        Assert.Equal(PdfPageTexts, results.Select(r => r.Text));
         Assert.Equal(new int?[] { 1, 2, 3 }, results.Select(r => r.PageNumber));
 
         var onlySecond = new BarcodeReader(new BarcodeReaderOptions { PdfFirstPage = 2, PdfLastPage = 2 });
@@ -170,7 +171,7 @@ public class PdfTests
         var pdf = SinglePage((doc, page) =>
         {
             page.Images["Im1"] = doc.AddImage("/Width 10 /Height 10 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /JPXDecode",
-                new byte[] { 0, 1, 2, 3 });
+                [0, 1, 2, 3]);
             page.DrawImage("Im1", 0, 0, 100, 100);
         });
         var warnings = new List<string>();

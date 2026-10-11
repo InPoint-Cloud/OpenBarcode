@@ -7,6 +7,8 @@ namespace InPoint.Cloud.OpenBarcode.Tests;
 public class ImageTests
 {
     private static readonly BarcodeReader Reader = new();
+    private static readonly string[] TiffPageTexts = ["page one", "page two", "page one"];
+    private static readonly string[] MixedCanvasTexts = ["4006381333931", "dm code", "first qr", "second qr"];
 
     [Theory]
     [InlineData(ZxFormat.QR_CODE, "https://example.com/?id=42", BarcodeFormat.QrCode)]
@@ -58,7 +60,7 @@ public class ImageTests
         Fixtures.Blit(canvas, qr, 0, 0);
         Fixtures.Blit(canvas, bars, 0, qr.Height);
 
-        byte[] file = encoding switch
+        var file = encoding switch
         {
             "png" => Fixtures.Png(canvas),
             "jpeg" => Fixtures.Jpeg(canvas, quality: 75),
@@ -87,7 +89,7 @@ public class ImageTests
 
         var results = Reader.Read(tiff);
 
-        Assert.Equal(new[] { "page one", "page two", "page one" }, results.Select(r => r.Text));
+        Assert.Equal(TiffPageTexts, results.Select(r => r.Text));
         Assert.Equal(new int?[] { 0, 1, 2 }, results.Select(r => r.FrameIndex));
     }
 
@@ -121,7 +123,7 @@ public class ImageTests
 
         var texts = Reader.Read(Fixtures.Png(canvas)).Select(r => r.Text).OrderBy(t => t, StringComparer.Ordinal);
 
-        Assert.Equal(new[] { "4006381333931", "dm code", "first qr", "second qr" }, texts);
+        Assert.Equal(MixedCanvasTexts, texts);
     }
 
     [Fact]
@@ -142,7 +144,7 @@ public class ImageTests
     {
         var gray = Fixtures.Image(ZxFormat.QR_CODE, "from pixels");
         var bgra = new byte[gray.Pixels.Length * 4];
-        for (int i = 0; i < gray.Pixels.Length; i++)
+        for (var i = 0; i < gray.Pixels.Length; i++)
         {
             bgra[i * 4] = bgra[i * 4 + 1] = bgra[i * 4 + 2] = gray.Pixels[i];
             bgra[i * 4 + 3] = 255;
@@ -162,6 +164,6 @@ public class ImageTests
     [Fact]
     public void Rejects_unknown_content()
     {
-        Assert.Throws<NotSupportedException>(() => Reader.Read(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 }));
+        Assert.Throws<NotSupportedException>(() => Reader.Read([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]));
     }
 }

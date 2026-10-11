@@ -27,13 +27,13 @@ internal static class Fixtures
     public static GrayImage Image(ZxFormat format, string text, int moduleSize = 4, int quietModules = 10, int barHeight = 80)
     {
         var m = Matrix(format, text);
-        bool linear = m.Height == 1;
-        int rows = linear ? barHeight / moduleSize : m.Height;
-        int w = (m.Width + 2 * quietModules) * moduleSize;
-        int h = (rows + 2 * quietModules) * moduleSize;
+        var linear = m.Height == 1;
+        var rows = linear ? barHeight / moduleSize : m.Height;
+        var w = (m.Width + 2 * quietModules) * moduleSize;
+        var h = (rows + 2 * quietModules) * moduleSize;
         var image = new GrayImage(w, h);
-        for (int y = 0; y < rows; y++)
-            for (int x = 0; x < m.Width; x++)
+        for (var y = 0; y < rows; y++)
+            for (var x = 0; x < m.Width; x++)
                 if (m[x, linear ? 0 : y])
                     FillRect(image, (x + quietModules) * moduleSize, (y + quietModules) * moduleSize, moduleSize, moduleSize, 0);
         return image;
@@ -41,23 +41,23 @@ internal static class Fixtures
 
     public static void FillRect(GrayImage image, int x0, int y0, int w, int h, byte value)
     {
-        for (int y = y0; y < y0 + h; y++)
-            for (int x = x0; x < x0 + w; x++)
+        for (var y = y0; y < y0 + h; y++)
+            for (var x = x0; x < x0 + w; x++)
                 image.Pixels[y * image.Width + x] = value;
     }
 
     /// <summary>Copies <paramref name="src"/> into <paramref name="dst"/> at an offset.</summary>
     public static void Blit(GrayImage dst, GrayImage src, int ox, int oy)
     {
-        for (int y = 0; y < src.Height; y++)
+        for (var y = 0; y < src.Height; y++)
             Buffer.BlockCopy(src.Pixels, y * src.Width, dst.Pixels, (oy + y) * dst.Width + ox, src.Width);
     }
 
     public static GrayImage Rotate90(GrayImage src)
     {
         var dst = new GrayImage(src.Height, src.Width);
-        for (int y = 0; y < src.Height; y++)
-            for (int x = 0; x < src.Width; x++)
+        for (var y = 0; y < src.Height; y++)
+            for (var x = 0; x < src.Width; x++)
                 dst.Pixels[x * dst.Width + (src.Height - 1 - y)] = src.Pixels[y * src.Width + x];
         return dst;
     }
@@ -65,7 +65,7 @@ internal static class Fixtures
     public static GrayImage Invert(GrayImage src)
     {
         var dst = new GrayImage(src.Width, src.Height);
-        for (int i = 0; i < src.Pixels.Length; i++) dst.Pixels[i] = (byte)(255 - src.Pixels[i]);
+        for (var i = 0; i < src.Pixels.Length; i++) dst.Pixels[i] = (byte)(255 - src.Pixels[i]);
         return dst;
     }
 
@@ -79,9 +79,9 @@ internal static class Fixtures
     public static byte[] TransparentPng(GrayImage image)
     {
         var rgba = new byte[image.Pixels.Length * 4];
-        for (int i = 0; i < image.Pixels.Length; i++)
+        for (var i = 0; i < image.Pixels.Length; i++)
         {
-            bool ink = image.Pixels[i] < 128;
+            var ink = image.Pixels[i] < 128;
             rgba[i * 4 + 3] = ink ? (byte)255 : (byte)0;
             // Transparent pixels are black too, so ignoring alpha would lose the code.
         }
@@ -100,24 +100,24 @@ internal static class Fixtures
     public static byte[] Pgm(GrayImage image)
     {
         var header = Encoding.ASCII.GetBytes($"P5\n# test\n{image.Width} {image.Height}\n255\n");
-        return header.Concat(image.Pixels).ToArray();
+        return [.. header, .. image.Pixels];
     }
 
     public static byte[] Pbm(GrayImage image)
     {
         var header = Encoding.ASCII.GetBytes($"P4\n{image.Width} {image.Height}\n");
-        return header.Concat(PackBits(image, blackIsOne: true)).ToArray();
+        return [.. header, .. PackBits(image, blackIsOne: true)];
     }
 
     /// <summary>1 bit per pixel, MSB first, rows padded to a byte.</summary>
     public static byte[] PackBits(GrayImage image, bool blackIsOne)
     {
-        int rowBytes = (image.Width + 7) / 8;
+        var rowBytes = (image.Width + 7) / 8;
         var bits = new byte[rowBytes * image.Height];
-        for (int y = 0; y < image.Height; y++)
-            for (int x = 0; x < image.Width; x++)
+        for (var y = 0; y < image.Height; y++)
+            for (var x = 0; x < image.Width; x++)
             {
-                bool black = image.Pixels[y * image.Width + x] < 128;
+                var black = image.Pixels[y * image.Width + x] < 128;
                 if (black == blackIsOne) bits[y * rowBytes + x / 8] |= (byte)(0x80 >> (x & 7));
             }
         return bits;
@@ -142,8 +142,8 @@ internal static class Fixtures
                     tiff.SetField(TiffTag.PHOTOMETRIC, Photometric.MINISWHITE);
                     tiff.SetField(TiffTag.COMPRESSION, Compression.CCITTFAX4);
                     var bits = PackBits(page, blackIsOne: true);
-                    int rowBytes = (page.Width + 7) / 8;
-                    for (int y = 0; y < page.Height; y++)
+                    var rowBytes = (page.Width + 7) / 8;
+                    for (var y = 0; y < page.Height; y++)
                         tiff.WriteScanline(bits.AsSpan(y * rowBytes, rowBytes).ToArray(), y);
                 }
                 else
@@ -151,7 +151,7 @@ internal static class Fixtures
                     tiff.SetField(TiffTag.BITSPERSAMPLE, 8);
                     tiff.SetField(TiffTag.PHOTOMETRIC, Photometric.MINISBLACK);
                     tiff.SetField(TiffTag.COMPRESSION, Compression.LZW);
-                    for (int y = 0; y < page.Height; y++)
+                    for (var y = 0; y < page.Height; y++)
                         tiff.WriteScanline(page.Pixels.AsSpan(y * page.Width, page.Width).ToArray(), y);
                 }
                 tiff.WriteDirectory();
@@ -165,7 +165,7 @@ internal static class Fixtures
     {
         var tiffBytes = Tiff(true, image);
         using var tiff = BitMiracle.LibTiff.Classic.Tiff.ClientOpen("t.tif", "r", new MemoryStream(tiffBytes), new TiffStream());
-        int size = (int)tiff.RawStripSize(0);
+        var size = (int)tiff.RawStripSize(0);
         var raw = new byte[size];
         tiff.ReadRawStrip(0, raw, 0, size);
         return raw;
