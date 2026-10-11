@@ -7,13 +7,16 @@ on:
   push:
     tags: ['v*']
 
+# Least privilege by default; the publish job asks for exactly what it needs.
 permissions:
-  contents: write   # create the GitHub release
-  id-token: write   # nuget.org Trusted Publishing (OIDC)
+  contents: read
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create the GitHub release
+      id-token: write   # nuget.org Trusted Publishing (OIDC)
     environment: nuget
     steps:
       - uses: actions/checkout@v7
