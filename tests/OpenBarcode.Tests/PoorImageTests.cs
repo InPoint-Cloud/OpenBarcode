@@ -19,6 +19,12 @@ public class PoorImageTests
         "dark" => new Degraded { Ink = 0.02f, Paper = 0.18f, Blur = 0.5, Noise = 3 },
         "shadowed" => new Degraded { LightFalloff = 0.85, Blur = 0.5, Noise = 3 },
         "noisy" => new Degraded { Ink = 0.1f, Paper = 0.9f, Blur = 0.5, Noise = 40, Seed = 3 },
+        "very noisy" => new Degraded { Ink = 0.1f, Paper = 0.9f, Blur = 0.5, Noise = 70, Seed = 1 },
+        // Small, tilted, out of focus and grainy, with a gray print on a shaded page.
+        "phone photo" => new Degraded
+        {
+            PixelsPerModule = 2.5, Angle = 15, Keystone = 0.15, Blur = 1.0, Ink = 0.15f, Paper = 0.75f, LightFalloff = 0.3, Noise = 15, Seed = 1,
+        },
         "specks" => new Degraded { Specks = 0.05, Seed = 5 },
         "tilted" => new Degraded { Angle = 30, Blur = 0.5 },
         "keystone" => new Degraded { Angle = 5, Keystone = 0.3, Blur = 0.5 },
@@ -38,6 +44,11 @@ public class PoorImageTests
     [InlineData("dark", ZxFormat.CODE_128, "SHIP-00012345")]
     [InlineData("shadowed", ZxFormat.EAN_13, "4006381333931")]
     [InlineData("noisy", ZxFormat.CODE_128, "SHIP-00012345")]
+    [InlineData("very noisy", ZxFormat.EAN_13, "4006381333931")]
+    [InlineData("very noisy", ZxFormat.CODE_39, "PART42X")]
+    [InlineData("phone photo", ZxFormat.EAN_13, "4006381333931")]
+    [InlineData("phone photo", ZxFormat.CODE_128, "SHIP-00012345")]
+    [InlineData("phone photo", ZxFormat.CODE_39, "PART42X")]
     [InlineData("noisy", ZxFormat.QR_CODE, "https://example.com/order?id=4711")]
     [InlineData("specks", ZxFormat.QR_CODE, "https://example.com/order?id=4711")]
     [InlineData("tilted", ZxFormat.AZTEC, "Aztec ticket 0815-4711")]
@@ -84,6 +95,23 @@ public class PoorImageTests
         }.Render(ZxFormat.QR_CODE, QrBill);
 
         Reader.Read(image).Should().NotContain(r => r.Format != BarcodeFormat.QrCode);
+    }
+
+    [Theory]
+    [InlineData(ZxFormat.CODE_128, "SHIP-00012345", 33.7, 0, 0)]
+    [InlineData(ZxFormat.PDF_417, "PDF417 payload 1234567890", 18.7, 0, 0)]
+    [InlineData(ZxFormat.QR_CODE, "https://example.com/order?id=4711", 0, 70, 0)]
+    [InlineData(ZxFormat.AZTEC, "Aztec ticket 0815-4711", 0, 70, 2)]
+    public void Texture_of_another_code_is_not_taken_for_a_short_retail_code(ZxFormat format, string text, double angle, double noise, int seed)
+    {
+        // The bars of a tilted code, or the modules of a grainy 2D code, used to come out as a UPC-E or EAN-8
+        // that two passes agreed on.
+        var image = new Degraded
+        {
+            Angle = angle, Blur = 0.5, Noise = noise, Ink = noise > 0 ? 0.1f : 0f, Paper = noise > 0 ? 0.9f : 1f, Seed = seed,
+        }.Render(format, text);
+
+        Reader.Read(Fixtures.Png(image)).Should().OnlyContain(r => r.Text == text);
     }
 
     [Fact]

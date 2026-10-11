@@ -112,18 +112,22 @@ clean-up passes that run only when the normal passes find nothing:
 - lighting correction that stretches contrast locally (faint print, shadows, dark photos) without
   amplifying sensor noise,
 - adaptive thresholding, which ZXing's per-row binarizer for 1D codes lacks,
-- denoising (median and Gaussian), and averaging along the bars of 1D codes,
+- denoising (median and Gaussian), and averaging along the bars of 1D codes, then thresholding each row
+  midway between its local darkest and lightest pixel, so grainy, blurred phone photos of 1D codes read
+  (ZXing's own row binarizer sharpens the noise back in and its threshold drifts when ink spreads),
 - sharpening for out-of-focus pictures,
 - QR codes with a logo over the middle: when ZXing finds a QR code but cannot decode it, the modules under a
   central logo are treated as unknown rather than wrong, which halves what they cost the error correction,
 - a Data Matrix reader of its own that samples each module's average brightness, for blurry, noisy and
   faint Data Matrix codes that ZXing's detector cannot outline,
-- tilt detection from edge directions, so Aztec, PDF417 and 1D codes are read at any angle
-  (ZXing gives up beyond about 10–15°),
+- tilt detection from edge directions, smoothed first on grainy pictures, so Aztec, PDF417 and 1D codes
+  are read at any angle (ZXing gives up beyond about 10–15°),
 - large images are cleaned up at half size.
 
 Codes with only a single check digit (EAN/UPC, EAN-8, UPC-E, ITF, Codabar, DataBar) are easy to "read" out of
-noise, so on these passes they are only reported when two different passes agree.
+noise, so on these passes they are only reported when two different passes agree, and a read must also
+repeat on a line a little beside the one it came from: real bars carry on, while the texture of a 2D code or
+of a tilted 1D code that passed for a short UPC-E or EAN-8 does not.
 
 ## Limitations
 

@@ -161,6 +161,56 @@ internal static class ImageFilters
         return new GrayImage(w, h, dst);
     }
 
+    /// <summary>
+    /// Thresholds each pixel midway between the darkest and lightest pixel within <paramref name="window"/>
+    /// along its row; rows whose local range is below <paramref name="minRange"/> turn white. For 1D codes
+    /// read along rows: blur and ink spread make bars wider and gaps narrower, which pulls a mean-based
+    /// threshold (and ZXing's own row binarizer) towards black, while the midpoint stays on the edges.
+    /// </summary>
+    public static GrayImage RowMidrangeThreshold(GrayImage image, int window, int minRange)
+    {
+        int w = image.Width, h = image.Height;
+        var r = Math.Max(1, window / 2);
+        var px = image.Pixels;
+        var dst = new byte[w * h];
+        var low = new byte[w];
+        var high = new byte[w];
+        for (var y = 0; y < h; y++)
+        {
+            var row = y * w;
+            SlidingExtremes(px, row, w, r, low, high);
+            for (var x = 0; x < w; x++)
+            {
+                int lo = low[x], hi = high[x];
+                dst[row + x] = hi - lo >= minRange && px[row + x] * 2 < lo + hi ? (byte)0 : (byte)255;
+            }
+        }
+        return new GrayImage(w, h, dst);
+    }
+
+    /// <summary>Minimum and maximum of a row within <paramref name="radius"/> of each pixel, using monotonic queues.</summary>
+    private static void SlidingExtremes(byte[] px, int row, int w, int radius, byte[] low, byte[] high)
+    {
+        var minQueue = new int[w];
+        var maxQueue = new int[w];
+        int minHead = 0, minTail = 0, maxHead = 0, maxTail = 0, next = 0;
+        for (var x = 0; x < w; x++)
+        {
+            for (; next < w && next <= x + radius; next++)
+            {
+                var v = px[row + next];
+                while (minTail > minHead && px[row + minQueue[minTail - 1]] >= v) minTail--;
+                minQueue[minTail++] = next;
+                while (maxTail > maxHead && px[row + maxQueue[maxTail - 1]] <= v) maxTail--;
+                maxQueue[maxTail++] = next;
+            }
+            while (minQueue[minHead] < x - radius) minHead++;
+            while (maxQueue[maxHead] < x - radius) maxHead++;
+            low[x] = px[row + minQueue[minHead]];
+            high[x] = px[row + maxQueue[maxHead]];
+        }
+    }
+
     /// <summary>Separable Gaussian blur; removes sensor noise and JPEG blocking.</summary>
     public static GrayImage GaussianBlur(GrayImage image, double sigma) => GaussianBlur(image, sigma, sigma);
 
@@ -359,6 +409,9 @@ internal static class ImageFilters
     /// <param name="confidence">Share of edge strength near the peak, from about 0.1 (no preferred direction) to 1.</param>
     public static double DominantAngle(GrayImage image, out double confidence)
     {
+        // Sensor noise has edges in every direction and drowns the symbol's; smooth it away first.
+        var noise = NoiseLevel(image);
+        if (noise > NoisyForAngle) image = GaussianBlur(image, Math.Min(2.5, noise / NoisyForAngle));
         const int Bins = 90;
         var histogram = new double[Bins];
         int w = image.Width, h = image.Height;
@@ -410,6 +463,34 @@ internal static class ImageFilters
         var result = best + 0.5 + (sum > 0 ? moment / sum : 0);
         if (result >= 45) result -= 90;
         return result;
+    }
+
+    /// <summary>Noise level (grey levels) above which <see cref="DominantAngle"/> smooths the image first.</summary>
+    private const double NoisyForAngle = 4;
+
+    /// <summary>
+    /// The pixels along the line from (x0, y0) to (x1, y1), moved sideways by <paramref name="offset"/> and
+    /// extended by <paramref name="margin"/> at both ends, as an image <paramref name="rows"/> high and one
+    /// pixel per unit of length wide. Nearest pixels, not interpolated ones, so bars a pixel or so wide stay
+    /// sharp. Lets a 1D read be repeated on a parallel line at any angle.
+    /// </summary>
+    public static GrayImage Strip(GrayImage image, double x0, double y0, double x1, double y1, double offset, int rows, double margin)
+    {
+        double dx = x1 - x0, dy = y1 - y0, length = Math.Sqrt(dx * dx + dy * dy);
+        double ux = dx / length, uy = dy / length;
+        var w = (int)Math.Ceiling(length + 2 * margin);
+        var dst = new byte[w * rows];
+        for (var r = 0; r < rows; r++)
+        {
+            var side = offset + r - (rows - 1) / 2.0;
+            double sx = x0 - margin * ux - side * uy, sy = y0 - margin * uy + side * ux;
+            for (var i = 0; i < w; i++)
+            {
+                int x = (int)Math.Floor(sx + i * ux), y = (int)Math.Floor(sy + i * uy);
+                dst[r * w + i] = x < 0 || y < 0 || x >= image.Width || y >= image.Height ? (byte)255 : image.Pixels[y * image.Width + x];
+            }
+        }
+        return new GrayImage(w, rows, dst);
     }
 
     /// <summary>Bilinear sample; white outside the image.</summary>
