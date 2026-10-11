@@ -4,14 +4,14 @@ using ZxFormat = ZXing.BarcodeFormat;
 
 namespace InPoint.Cloud.OpenBarcode.Tests;
 
-/// <summary>Photos and scans of poor quality; each case failed before the clean-up passes existed.</summary>
+/// <summary>Photos and scans of poor quality; each case failed before the cleanup passes existed.</summary>
 public class PoorImageTests
 {
     private static readonly BarcodeReader Reader = new();
 
     private static Degraded Condition(string name) => name switch
     {
-        // Grey edges from a camera-like resample at a fractional scale; nearest-neighbour upscaling broke these.
+        // Gray edges from a camera-like resampling at a fractional scale; nearest-neighbor upscaling broke these.
         "anti-aliased" => new Degraded { PixelsPerModule = 3.21 },
         "blurry" => new Degraded { Blur = 1.8 },
         "very blurry" => new Degraded { PixelsPerModule = 4, Blur = 2.4 },
