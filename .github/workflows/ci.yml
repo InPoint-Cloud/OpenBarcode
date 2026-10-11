@@ -4,10 +4,25 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+# Least privilege: the jobs only check out code. Uploading artifacts and writing the run summary need no token scopes.
+permissions:
+  contents: read
+
+# A new push to the same branch or PR cancels the run that is still going.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
 
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -15,31 +30,35 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
         with:
-          # The .slnx solution needs the .NET 10 SDK; the tests run on the .NET 8 runtime.
-          dotnet-version: |
-            8.0.x
-            10.0.x
+          global-json-file: global.json
+
       - run: dotnet build -c Release
+
       - run: >
           dotnet test -c Release --no-build
           --results-directory "${{ github.workspace }}/TestResults"
           --coverage --coverage-output-format cobertura --coverage-output coverage.cobertura.xml
-      - if: matrix.os == 'ubuntu-latest'
-        name: Coverage summary
+
+      - name: Coverage summary
+        if: matrix.os == 'ubuntu-latest'
         run: |
-          rates=$(grep -m1 -o '<coverage line-rate="[^"]*" branch-rate="[^"]*"' TestResults/coverage.cobertura.xml)
-          line=$(sed -E 's/.*line-rate="([^"]*)".*/\1/' <<< "$rates")
-          branch=$(sed -E 's/.*branch-rate="([^"]*)".*/\1/' <<< "$rates")
-          printf '### Code coverage\n\n| Lines | Branches |\n|---|---|\n| %.1f%% | %.1f%% |\n' \
-            "$(bc -l <<< "$line*100")" "$(bc -l <<< "$branch*100")" >> "$GITHUB_STEP_SUMMARY"
-      - if: matrix.os == 'ubuntu-latest'
+          grep -m1 -o '<coverage line-rate="[^"]*" branch-rate="[^"]*"' TestResults/coverage.cobertura.xml \
+            | awk -F'"' '{ printf "### Code coverage\n\n| Lines | Branches |\n|---|---|\n| %.1f%% | %.1f%% |\n", $2 * 100, $4 * 100 }' \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage
+        if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: TestResults/coverage.cobertura.xml
-      - if: matrix.os == 'ubuntu-latest'
+
+      - name: Pack
+        if: matrix.os == 'ubuntu-latest'
         run: dotnet pack -c Release --no-build -o artifacts
-      - if: matrix.os == 'ubuntu-latest'
+
+      - name: Upload packages
+        if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v7
         with:
           name: packages

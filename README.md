@@ -2,7 +2,7 @@
 
 An open-source barcode reader for .NET that reads **images and PDF files** with **managed code only**:
 no native libraries, no System.Drawing, no Ghostscript or PDFium. It runs anywhere .NET runs (Windows, Linux,
-macOS, containers, Azure Functions) and targets .NET Standard 2.0 and .NET 8.
+macOS, containers, Azure Functions) and targets .NET Standard 2.0.
 
 ```csharp
 using InPoint.Cloud.OpenBarcode;
@@ -16,7 +16,7 @@ foreach (var barcode in reader.ReadFile("invoice.pdf"))
 
 ```
 dotnet add package InPoint.Cloud.OpenBarcode
-dotnet tool install -g InPoint.Cloud.OpenBarcode.Cli   # command: openbarcode
+dotnet tool install -g InPoint.Cloud.OpenBarcode.Cli   # command: openbarcode (needs .NET 10 or later)
 ```
 
 The namespace is `InPoint.Cloud.OpenBarcode`.
@@ -153,7 +153,7 @@ can report inside a longer 1D barcode (a "UPC-E" made of half an EAN-13) are fil
 
 ## Building and testing
 
-Needs the .NET 10 SDK (for the `.slnx` solution file); the library itself targets .NET Standard 2.0 and .NET 8.
+Needs the .NET 10 SDK. The library targets .NET Standard 2.0; the CLI and the tests target .NET 10.
 
 ```
 dotnet build
