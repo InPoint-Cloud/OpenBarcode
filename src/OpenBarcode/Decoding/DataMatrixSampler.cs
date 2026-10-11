@@ -47,6 +47,28 @@ internal static class DataMatrixSampler
         double width = x1 - x0 + 1, height = y1 - y0 + 1;
         if (width < 8 || height < 8) return null;
 
+        var candidates = Candidates(crop, x0, y0, width, height);
+        if (candidates.Count == 0) return null;
+        candidates.Sort((a, b) => b.Score.CompareTo(a.Score));
+
+        var decoder = new DataMatrixDecoder();
+        for (var i = 0; i < candidates.Count && i < MaxAttempts; i++)
+        {
+            var decoded = Decode(decoder, candidates[i].Levels);
+            if (decoded == null) continue;
+            var corners = new[]
+            {
+                new BarcodePoint(x0, y1 + 1), new BarcodePoint(x0, y0),
+                new BarcodePoint(x1 + 1, y0), new BarcodePoint(x1 + 1, y1 + 1),
+            };
+            return new Result(decoded.Text, decoded.RawBytes, corners);
+        }
+        return null;
+    }
+
+    /// <summary>Every symbol size and orientation whose border matches the box well enough, with its module levels upright.</summary>
+    private static List<(double Score, float[,] Levels)> Candidates(GrayImage crop, int x0, int y0, double width, double height)
+    {
         var candidates = new List<(double Score, float[,] Levels)>();
         var cache = new Dictionary<(int, int), float[,]>();
         foreach (var (rows, cols) in Sizes)
@@ -54,11 +76,8 @@ internal static class DataMatrixSampler
             for (var turn = 0; turn < 4; turn++)
             {
                 // Grid as it appears in the crop: a quarter turn swaps rows and columns.
-                int gridRows = turn % 2 == 0 ? rows : cols, gridCols = turn % 2 == 0 ? cols : rows;
-                var aspect = (width / gridCols) / (height / gridRows);
-                if (aspect < 0.75 || aspect > 1.33) continue;
-                // Modules need at least about 1.5 pixels to be sampled at all.
-                if (width / gridCols < 1.5 || height / gridRows < 1.5) continue;
+                var (gridRows, gridCols) = turn % 2 == 0 ? (rows, cols) : (cols, rows);
+                if (!Fits(width, height, gridRows, gridCols)) continue;
                 if (!cache.TryGetValue((gridRows, gridCols), out var grid))
                     cache[(gridRows, gridCols)] = grid = Sample(crop, x0, y0, width, height, gridRows, gridCols);
                 var levels = Turn(grid, turn);
@@ -66,29 +85,31 @@ internal static class DataMatrixSampler
                 if (score >= MinBorderMatch) candidates.Add((score, levels));
             }
         }
-        if (candidates.Count == 0) return null;
-        candidates.Sort((a, b) => b.Score.CompareTo(a.Score));
+        return candidates;
+    }
 
-        var decoder = new DataMatrixDecoder();
-        for (var i = 0; i < candidates.Count && i < MaxAttempts; i++)
+    /// <summary>Whether a grid of that many rows and columns gives the box roughly square modules that can be sampled.</summary>
+    private static bool Fits(double width, double height, int gridRows, int gridCols)
+    {
+        var aspect = (width / gridCols) / (height / gridRows);
+        if (aspect < 0.75 || aspect > 1.33) return false;
+        // Modules need at least about 1.5 pixels to be sampled at all.
+        return width / gridCols >= 1.5 && height / gridRows >= 1.5;
+    }
+
+    /// <summary>Decodes one candidate's module levels; null when no contrast and threshold gives a valid symbol.</summary>
+    private static DecoderResult? Decode(DataMatrixDecoder decoder, float[,] candidate)
+    {
+        // Blur leaks ink between neighbouring modules, so a lone light module among dark ones reads grey.
+        // Undo some of that by contrasting each module with its neighbours, and try a few thresholds.
+        foreach (var contrast in Contrasts)
         {
-            // Blur leaks ink between neighbouring modules, so a lone light module among dark ones reads grey.
-            // Undo some of that by contrasting each module with its neighbours, and try a few thresholds.
-            foreach (var contrast in Contrasts)
+            var levels = contrast == 0 ? candidate : Sharpen(candidate, contrast);
+            foreach (var split in Splits)
             {
-                var levels = contrast == 0 ? candidates[i].Levels : Sharpen(candidates[i].Levels, contrast);
-                foreach (var split in Splits)
-                {
-                    if (BorderScore(levels, split, out var modules) < MinBorderMatch) continue;
-                    var decoded = Decode(decoder, modules);
-                    if (decoded?.Text == null) continue;
-                    var corners = new[]
-                    {
-                        new BarcodePoint(x0, y1 + 1), new BarcodePoint(x0, y0),
-                        new BarcodePoint(x1 + 1, y0), new BarcodePoint(x1 + 1, y1 + 1),
-                    };
-                    return new Result(decoded.Text, decoded.RawBytes, corners);
-                }
+                if (BorderScore(levels, split, out var modules) < MinBorderMatch) continue;
+                var decoded = Decode(decoder, modules);
+                if (decoded?.Text != null) return decoded;
             }
         }
         return null;
@@ -140,12 +161,7 @@ internal static class DataMatrixSampler
     private static bool FindBounds(GrayImage crop, int threshold, out int x0, out int y0, out int x1, out int y1)
     {
         int w = crop.Width, h = crop.Height;
-        var px = crop.Pixels;
-        var colInk = new int[w];
-        var rowInk = new int[h];
-        for (var y = 0; y < h; y++)
-            for (var x = 0; x < w; x++)
-                if (px[y * w + x] < threshold) { colInk[x]++; rowInk[y]++; }
+        var (colInk, rowInk) = CountInk(crop, threshold, 0, 0, w - 1, h - 1);
 
         // Find the ink's extent in each direction first, then require the edge line to be substantially inked
         // relative to that extent, so a few specks in the quiet zone do not count.
@@ -156,11 +172,7 @@ internal static class DataMatrixSampler
         for (var pass = 0; pass < 2; pass++)
         {
             // Recount within the current box so ink outside it does not dilute the fractions.
-            var cols = new int[w];
-            var rows = new int[h];
-            for (var y = ry0; y <= ry1; y++)
-                for (var x = cx0; x <= cx1; x++)
-                    if (px[y * w + x] < threshold) { cols[x]++; rows[y]++; }
+            var (cols, rows) = CountInk(crop, threshold, cx0, ry0, cx1, ry1);
             int boxW = cx1 - cx0 + 1, boxH = ry1 - ry0 + 1;
             if (!Edges(cols, boxH, cx0, cx1, out cx0, out cx1) || !Edges(rows, boxW, ry0, ry1, out ry0, out ry1)) return false;
         }
@@ -169,6 +181,19 @@ internal static class DataMatrixSampler
         y0 = ry0;
         y1 = ry1;
         return x1 > x0 && y1 > y0;
+    }
+
+    /// <summary>Dark pixels per column and per row within the box [x0, x1] x [y0, y1].</summary>
+    private static (int[] Cols, int[] Rows) CountInk(GrayImage crop, int threshold, int x0, int y0, int x1, int y1)
+    {
+        var w = crop.Width;
+        var px = crop.Pixels;
+        var cols = new int[w];
+        var rows = new int[crop.Height];
+        for (var y = y0; y <= y1; y++)
+            for (var x = x0; x <= x1; x++)
+                if (px[y * w + x] < threshold) { cols[x]++; rows[y]++; }
+        return (cols, rows);
     }
 
     private static bool Extent(int[] ink, int length, out int first, out int last)
