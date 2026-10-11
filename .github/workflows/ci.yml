@@ -64,7 +64,7 @@ jobs:
           name: packages
           path: artifacts/*.nupkg
 
-  # Reads 462 simulated poor pictures and fails when fewer are read, or more are read wrongly, than in the saved
+  # Reads 594 simulated poor pictures and fails when fewer are read, or more are read wrongly, than in the saved
   # baseline. After a change that improves reading, update the baseline with --save (see README).
   benchmark:
     runs-on: ubuntu-latest

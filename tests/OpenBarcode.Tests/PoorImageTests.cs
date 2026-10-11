@@ -114,6 +114,39 @@ public class PoorImageTests
         Reader.Read(Fixtures.Png(image)).Should().OnlyContain(r => r.Text == text);
     }
 
+    [Theory]
+    [InlineData(ZxFormat.QR_CODE, "https://example.com/order?id=4711", false)]   // read as two UPC-Es without clean-up
+    [InlineData(ZxFormat.AZTEC, "Aztec ticket 0815-4711", false)]               // read as a UPC-E without clean-up
+    [InlineData(ZxFormat.CODE_128, "SHIP-00012345", true)]                      // read as DataBar Expanded "(01)…(3920)"
+    public void Noise_over_another_code_is_not_taken_for_a_retail_code(ZxFormat format, string text, bool enhance)
+    {
+        var image = new Degraded { Ink = 0.1f, Paper = 0.9f, Blur = 0.5, Noise = 66, Seed = 3 }.Render(format, text);
+        var reader = new BarcodeReader(new BarcodeReaderOptions { EnhancePoorImages = enhance });
+
+        reader.Read(image).Should().OnlyContain(r => r.Text == text);
+    }
+
+    [Fact]
+    public void Plain_noise_is_not_taken_for_a_pdf417()
+    {
+        // ZXing decoded this as a level-0 PDF417 "AAAA" after correcting more than level 0 can safely correct.
+        var noise = new GrayImage(2000, 2000);
+        var rnd = new Random(7);
+        for (var i = 0; i < noise.Pixels.Length; i++) noise.Pixels[i] = (byte)rnd.Next(100, 200);
+        var reader = new BarcodeReader(new BarcodeReaderOptions { EnhancePoorImages = false });
+
+        reader.Read(noise).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Conflicting_misreads_of_one_damaged_code_are_not_reported()
+    {
+        // Passes over this speckled UPC-E made different misreads that pass the check digit; one was reported.
+        var image = new Degraded { Specks = 0.07, Seed = 2 }.Render(ZxFormat.UPC_E, "01234565");
+
+        Reader.Read(image).Should().OnlyContain(r => r.Text == "01234565");
+    }
+
     [Fact]
     public void Points_of_a_deskewed_code_are_in_the_original_image()
     {

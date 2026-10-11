@@ -140,7 +140,8 @@ clean-up passes that run only when the normal passes find nothing:
 Codes with only a single check digit (EAN/UPC, EAN-8, UPC-E, ITF, Codabar, DataBar) are easy to "read" out of
 noise, so on these passes they are only reported when two different passes agree, and a read must also
 repeat on a line a little beside the one it came from: real bars carry on, while the texture of a 2D code or
-of a tilted 1D code that passed for a short UPC-E or EAN-8 does not.
+of a tilted 1D code that passed for a short UPC-E or EAN-8 does not. EAN/UPC codes must also have light margins beyond their guard
+bars, and when passes read one damaged EAN/UPC code as different numbers, none of them is reported.
 
 ## Limitations
 
@@ -183,8 +184,8 @@ jbig2enc (`tests/samples`).
 
 ### Detection benchmark
 
-`tests/OpenBarcode.Benchmark` renders 462 poor pictures (11 conditions such as blur, noise, fading, tilt,
-perspective and phone photos, each for 7 symbologies at 6 severities) plus 24 pictures without a barcode, and
+`tests/OpenBarcode.Benchmark` renders 594 poor pictures (11 conditions such as blur, noise, fading, tilt,
+perspective and phone photos, each for 9 symbologies at 6 severities) plus 24 pictures without a barcode, and
 prints how many were read per condition and how many reads were wrong. CI runs it on every push and fails when
 fewer pictures are read or more are read wrongly than in `tests/OpenBarcode.Benchmark/baseline.json`.
 

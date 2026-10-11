@@ -22,6 +22,8 @@ internal static class Corpus
         ("Code128", ZxFormat.CODE_128, "SHIP-00012345"),
         ("Code39", ZxFormat.CODE_39, "PART42X"),
         ("EAN13", ZxFormat.EAN_13, "4006381333931"),
+        ("EAN8", ZxFormat.EAN_8, "96385074"),
+        ("UPCE", ZxFormat.UPC_E, "01234565"),
     ];
 
     private const int Severities = 6;

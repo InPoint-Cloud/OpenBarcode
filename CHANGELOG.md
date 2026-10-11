@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- Fewer wrong reads. EAN/UPC reads need a light margin of at least 5 modules beyond their guard bars, so the bars
+  of an unreadable Code 128 or PDF417, or the modules of a 2D code, no longer pass for a UPC-E or EAN-8. With
+  `EnhancePoorImages` off, weakly checked reads must also repeat on a line beside the one they were read on.
+  DataBar Expanded reads that end in an application identifier with no data are dropped. When passes over one
+  damaged code produce different EAN/UPC numbers, none is reported. PDF417 codes at error correction level 0 or 1
+  are dropped when ZXing corrected more than ISO 15438 allows, which turned plain noise into "AAAA". On the benchmark, wrong reads went from 22 to
+  0 with clean-up off and from 4 to 2 with it on.
+
 ### Added
 
 - `BarcodeReader.Enumerate` and `EnumerateFile` return each page's barcodes (or each TIFF page's) as soon as that
@@ -14,7 +24,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   decoding pass, so even a slow search over a single image stops promptly.
 - `-j`/`--parallel <n>` in the CLI reads several files at the same time (`0` uses every core). Output stays in the
   order the files were given. Seven sample files take 20 s instead of 50 s on four cores.
-- `tests/OpenBarcode.Benchmark`, a detection benchmark of 462 simulated poor pictures and 24 without a barcode.
+- `tests/OpenBarcode.Benchmark`, a detection benchmark of 594 simulated poor pictures and 24 without a barcode.
   CI fails when a change reads fewer pictures or makes more wrong reads.
 
 ## [0.2.0] - 2026-10-11

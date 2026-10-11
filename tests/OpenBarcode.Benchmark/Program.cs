@@ -9,7 +9,7 @@ using InPoint.Cloud.OpenBarcode.Imaging;
 const string Usage = """
     Usage: dotnet run -c Release --project tests/OpenBarcode.Benchmark -- [options]
 
-    Reads 462 simulated poor pictures of barcodes (11 conditions × 7 symbologies × 6 severities) and 24 pictures
+    Reads 594 simulated poor pictures of barcodes (11 conditions × 9 symbologies × 6 severities) and 24 pictures
     without a barcode, and reports how many were read and how many reads were wrong.
 
     Options:
