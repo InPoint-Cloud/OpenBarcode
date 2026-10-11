@@ -76,6 +76,7 @@ was decoded from), `Source` (`Image`, `PdfImage`, `PdfVector`), `PageNumber` (PD
 | `TryInverted` | `true` | Also try light-on-dark. |
 | `AutoRotate` | `true` | Also look for 1D codes turned 90°. 2D codes are found at any angle regardless. |
 | `ReadMultiple` | `true` | Find every code, not just the first. |
+| `EnhancePoorImages` | `true` | When nothing is found in a photo or scan, retry with clean-up (see below). Off for rendered PDF vectors. |
 | `PdfReadImages` / `PdfReadVectorGraphics` | `true` | Turn either PDF source off. |
 | `PdfRenderDpi` | `300` | Resolution for vector graphics. |
 | `PdfMaxRenderPixels` | 40 M | Caps memory for huge pages; DPI is lowered to fit. |
@@ -99,14 +100,34 @@ A full A4 page scanned at 300 dpi takes roughly 0.5–2 s with the thorough defa
 Restricting `Formats`, setting `ReadMultiple = false` (stop at the first code) or `TryHarder = false`
 makes it several times faster. Pages are independent, so batches parallelise well.
 
+When an image holds no barcode, the clean-up passes for poor pictures (`EnhancePoorImages`) roughly triple
+the time spent on it (an A4 page at 300 dpi: about 1 s becomes about 3 s). Images where a code is found
+straight away cost nothing extra. Turn the option off, or use `--no-enhance`, for clean input in bulk.
+
+## Poor pictures
+
+Faded print, dark or unevenly lit photos, noise, JPEG artefacts, blur and tilted codes are handled by
+clean-up passes that run only when the normal passes find nothing:
+
+- lighting correction that stretches contrast locally (faint print, shadows, dark photos),
+- adaptive thresholding, which ZXing's per-row binarizer for 1D codes lacks,
+- denoising (median and Gaussian), and averaging along the bars of 1D codes,
+- sharpening for out-of-focus pictures,
+- tilt detection from edge directions, so Aztec, PDF417 and 1D codes are read at any angle
+  (ZXing gives up beyond about 10–15°),
+- large images are cleaned up at half size.
+
+Codes with only a single check digit (EAN/UPC, EAN-8, UPC-E, ITF, Codabar, DataBar) are easy to "read" out of
+noise, so on these passes they are only reported when two different passes agree.
+
 ## Limitations
 
 - Barcodes set as **text in a barcode font** inside a PDF are not detected (glyphs are not rendered).
   Most generators draw bars as paths or images, which work.
 - **JPEG 2000** (`JPXDecode`) images in PDFs are skipped with a warning; no managed decoder is used.
 - The vector renderer ignores clipping paths, soft masks and shading patterns.
-- Damaged, very blurry or strongly perspective-distorted photos may not decode; this is a document reader
-  first, not a camera scanner.
+- Damaged, very blurry or strongly perspective-distorted photos may still not decode, and neither do codes
+  with modules much smaller than 1.5 pixels; this is a document reader first, not a camera scanner.
 
 ## How it works
 
@@ -117,7 +138,8 @@ file ──► sniff type ─┬─► image decoders (StbImageSharp, LibTiff.NE
                                                                                                  ▼
                          ZXing.Net detectors ◄── quiet-zone padding, upscaling of tiny images,
                                                  90° pass for 1D, blob crops for Data Matrix/Aztec,
-                                                 fragment and duplicate filtering
+                                                 fragment and duplicate filtering, then, if nothing
+                                                 was found, clean-up passes for poor pictures
 ```
 
 ZXing's Data Matrix and Aztec detectors search outward from the image centre, so on a page with several codes

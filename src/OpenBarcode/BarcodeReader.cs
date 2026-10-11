@@ -75,7 +75,7 @@ namespace InPoint.Cloud.OpenBarcode
             var decoder = new ZxingDecoder(_options);
             var results = new ResultSet();
             for (int i = 0; i < frames.Count; i++)
-                results.AddAll(decoder.Decode(frames[i]), BarcodeSource.Image, null, frames.Count > 1 ? i : (int?)null);
+                results.AddAll(decoder.Decode(frames[i], _options.EnhancePoorImages), BarcodeSource.Image, null, frames.Count > 1 ? i : (int?)null);
             return results.ToList();
         }
 
@@ -84,7 +84,7 @@ namespace InPoint.Cloud.OpenBarcode
         {
             if (image == null) throw new ArgumentNullException(nameof(image));
             var results = new ResultSet();
-            results.AddAll(new ZxingDecoder(_options).Decode(image), BarcodeSource.Image, null, null);
+            results.AddAll(new ZxingDecoder(_options).Decode(image, _options.EnhancePoorImages), BarcodeSource.Image, null, null);
             return results.ToList();
         }
 
@@ -152,7 +152,7 @@ namespace InPoint.Cloud.OpenBarcode
                         continue;
                     }
                     if (bitmap.Width < 8 || bitmap.Height < 8) continue;
-                    results.AddAll(decoder.Decode(bitmap), BarcodeSource.PdfImage, page.Number, imageIndex);
+                    results.AddAll(decoder.Decode(bitmap, _options.EnhancePoorImages), BarcodeSource.PdfImage, page.Number, imageIndex);
                 }
             }
 
@@ -169,7 +169,8 @@ namespace InPoint.Cloud.OpenBarcode
                     raster = null;
                 }
                 if (raster != null)
-                    results.AddAll(decoder.Decode(raster), BarcodeSource.PdfVector, page.Number, null);
+                    // Rendered vector graphics are clean, so the clean-up passes would only cost time.
+                    results.AddAll(decoder.Decode(raster, enhance: false), BarcodeSource.PdfVector, page.Number, null);
             }
         }
 
@@ -179,6 +180,7 @@ namespace InPoint.Cloud.OpenBarcode
             TryHarder = o.TryHarder,
             TryInverted = o.TryInverted,
             AutoRotate = o.AutoRotate,
+            EnhancePoorImages = o.EnhancePoorImages,
             ReadMultiple = o.ReadMultiple,
             PdfReadImages = o.PdfReadImages,
             PdfReadVectorGraphics = o.PdfReadVectorGraphics,

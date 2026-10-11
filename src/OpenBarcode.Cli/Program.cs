@@ -11,8 +11,9 @@ const string Usage = """
       -f, --formats <list>   Comma-separated formats to look for, e.g. qrcode,code128,ean13.
                              Groups: default (all but msi), all, linear, 2d.
           --json             Print results as JSON.
-          --fast             Quicker, less thorough search (no rotation, no inversion, no try-harder).
+          --fast             Quicker, less thorough search (no rotation, inversion, try-harder or clean-up).
           --first            Stop at the first barcode in each image.
+          --no-enhance       Skip the clean-up passes for poor photos and scans (faster on clean input).
           --dpi <n>          Resolution for rendering PDF vector graphics (default 300).
           --pages <a-b>      PDF page range, e.g. 2 or 1-3.
           --no-images        Do not decode images embedded in PDFs.
@@ -39,8 +40,9 @@ try
             case "-h" or "--help": Console.WriteLine(Usage); return 0;
             case "-f" or "--formats": options.Formats = ParseFormats(Next()); break;
             case "--json": json = true; break;
-            case "--fast": options.TryHarder = false; options.AutoRotate = false; options.TryInverted = false; break;
+            case "--fast": options.TryHarder = false; options.AutoRotate = false; options.TryInverted = false; options.EnhancePoorImages = false; break;
             case "--first": options.ReadMultiple = false; break;
+            case "--no-enhance": options.EnhancePoorImages = false; break;
             case "--dpi": options.PdfRenderDpi = int.Parse(Next()); break;
             case "--pages":
                 var range = Next().Split('-');
