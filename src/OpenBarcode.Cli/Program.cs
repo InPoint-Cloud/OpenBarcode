@@ -16,6 +16,7 @@ const string Usage = """
           --first            Stop at the first barcode in each image.
           --no-enhance       Skip the clean-up passes for poor photos and scans (faster on clean input).
           --dpi <n>          Resolution for rendering PDF vector graphics (default 300).
+          --max-pixels <n>   Refuse images larger than this many pixels (default 100000000).
           --pages <a-b>      PDF page range, e.g. 2 or 1-3.
           --no-images        Do not decode images embedded in PDFs.
           --no-vectors       Do not render PDF vector graphics.
@@ -154,6 +155,7 @@ internal sealed class CommandLine
             case "--first": Options.ReadMultiple = false; break;
             case "--no-enhance": Options.EnhancePoorImages = false; break;
             case "--dpi": Options.PdfRenderDpi = ParseInt(next()); break;
+            case "--max-pixels": Options.MaxImagePixels = long.Parse(next(), NumberStyles.Integer, CultureInfo.InvariantCulture); break;
             case "--pages": ParsePages(next()); break;
             case "--no-images": Options.PdfReadImages = false; break;
             case "--no-vectors": Options.PdfReadVectorGraphics = false; break;

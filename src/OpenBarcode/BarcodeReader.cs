@@ -34,6 +34,8 @@ public sealed class BarcodeReader
         if (_options.Formats == BarcodeFormat.None) throw new ArgumentException("No barcode formats selected.", nameof(options));
         if (_options.PdfRenderDpi < 36 || _options.PdfRenderDpi > 1200)
             throw new ArgumentOutOfRangeException(nameof(options), "PdfRenderDpi must be between 36 and 1200.");
+        if (_options.MaxImagePixels <= 0)
+            throw new ArgumentOutOfRangeException(nameof(options), "MaxImagePixels must be positive.");
     }
 
     /// <summary>
@@ -71,7 +73,7 @@ public sealed class BarcodeReader
     /// <summary>Reads an encoded image (PNG, JPEG, BMP, GIF, TIFF, TGA, PSD, PBM/PGM/PPM). Every TIFF page is read.</summary>
     public IReadOnlyList<BarcodeResult> ReadImage(byte[] data)
     {
-        var frames = ImageDecoder.Decode(data);
+        var frames = ImageDecoder.Decode(data, _options.MaxImagePixels);
         var decoder = new ZxingDecoder(_options);
         var results = new ResultSet();
         for (var i = 0; i < frames.Count; i++)
@@ -141,7 +143,7 @@ public sealed class BarcodeReader
         foreach (var image in page.GetImages())
         {
             var imageIndex = index++;
-            var bitmap = DecodeImage(image, out var reason);
+            var bitmap = DecodeImage(image, _options.MaxImagePixels, out var reason);
             if (bitmap == null)
             {
                 warnings?.Add($"Page {page.Number}, image {imageIndex}: skipped ({reason}).");
@@ -153,11 +155,11 @@ public sealed class BarcodeReader
     }
 
     /// <summary>Decodes an embedded image; null with a reason when it is unsupported or broken.</summary>
-    private static GrayImage? DecodeImage(IPdfImage image, out string? reason)
+    private static GrayImage? DecodeImage(IPdfImage image, long maxPixels, out string? reason)
     {
         try
         {
-            return PdfImageDecoder.Decode(image, out reason);
+            return PdfImageDecoder.Decode(image, maxPixels, out reason);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -195,6 +197,7 @@ public sealed class BarcodeReader
         PdfReadVectorGraphics = o.PdfReadVectorGraphics,
         PdfRenderDpi = o.PdfRenderDpi,
         PdfMaxRenderPixels = o.PdfMaxRenderPixels,
+        MaxImagePixels = o.MaxImagePixels,
         PdfFirstPage = o.PdfFirstPage,
         PdfLastPage = o.PdfLastPage,
         PdfPassword = o.PdfPassword,

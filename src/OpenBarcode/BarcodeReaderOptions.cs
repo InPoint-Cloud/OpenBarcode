@@ -1,3 +1,5 @@
+using InPoint.Cloud.OpenBarcode.Imaging;
+
 namespace InPoint.Cloud.OpenBarcode;
 
 /// <summary>Settings for <see cref="BarcodeReader"/>.</summary>
@@ -40,6 +42,13 @@ public sealed class BarcodeReaderOptions
 
     /// <summary>Upper bound on the size of a rasterized PDF page, in pixels. The DPI is lowered to fit. Default 40 million.</summary>
     public long PdfMaxRenderPixels { get; set; } = 40_000_000;
+
+    /// <summary>
+    /// Largest image, in pixels, that is decoded: image files, each TIFF page and each image embedded in a PDF.
+    /// A small file can declare a huge picture, so bigger images are refused before any memory is allocated
+    /// for them. Default 100 million (an A3 page scanned at 600 dpi is about 70 million).
+    /// </summary>
+    public long MaxImagePixels { get; set; } = ImageDecoder.DefaultMaxPixels;
 
     /// <summary>1-based first PDF page to read. Default 1.</summary>
     public int PdfFirstPage { get; set; } = 1;

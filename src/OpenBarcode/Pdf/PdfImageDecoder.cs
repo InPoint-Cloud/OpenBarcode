@@ -10,10 +10,15 @@ namespace InPoint.Cloud.OpenBarcode.Pdf;
 /// <summary>Turns an image embedded in a PDF into a grayscale bitmap.</summary>
 internal static class PdfImageDecoder
 {
-    /// <summary>Decodes the image, or returns null with a reason when its encoding is not supported.</summary>
-    public static GrayImage? Decode(IPdfImage image, out string? skipReason)
+    /// <summary>Decodes the image, or returns null with a reason when its encoding is not supported or it is too large.</summary>
+    public static GrayImage? Decode(IPdfImage image, long maxPixels, out string? skipReason)
     {
         skipReason = null;
+        if ((long)image.WidthInSamples * image.HeightInSamples > maxPixels)
+        {
+            skipReason = $"{image.WidthInSamples}×{image.HeightInSamples} pixels, more than the limit of {maxPixels:N0} (MaxImagePixels)";
+            return null;
+        }
         var filters = GetFilterNames(image.ImageDictionary);
 
         if (filters.Contains("JPXDecode"))
@@ -32,11 +37,11 @@ internal static class PdfImageDecoder
                 skipReason = "JPEG image with additional filters";
                 return null;
             }
-            result = ImageDecoder.DecodeStb(image.RawMemory.ToArray());
+            result = ImageDecoder.DecodeStb(image.RawMemory.ToArray(), maxPixels);
         }
         else if (image.TryGetPng(out var png) && png != null)
         {
-            result = ImageDecoder.DecodeStb(png);
+            result = ImageDecoder.DecodeStb(png, maxPixels);
             applyDecode = false;
         }
         else if (image.TryGetBytesAsMemory(out var samples))

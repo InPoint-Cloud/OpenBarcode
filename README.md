@@ -80,6 +80,7 @@ was decoded from), `Source` (`Image`, `PdfImage`, `PdfVector`), `PageNumber` (PD
 | `PdfReadImages` / `PdfReadVectorGraphics` | `true` | Turn either PDF source off. |
 | `PdfRenderDpi` | `300` | Resolution for vector graphics. |
 | `PdfMaxRenderPixels` | 40 M | Caps memory for huge pages; DPI is lowered to fit. |
+| `MaxImagePixels` | 100 M | Larger images (files, TIFF pages, images in PDFs) are refused from their header, so a small file can't claim gigabytes. |
 | `PdfFirstPage` / `PdfLastPage` | all | Page range. |
 | `PdfPassword` | | For encrypted PDFs. |
 | `CharacterSet` | | Fallback encoding for byte-mode data, e.g. `"ISO-8859-1"`. |
@@ -174,6 +175,9 @@ Apache-2.0. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the librari
 
 ## Releasing
 
-Push a tag such as `v0.1.0` (or `v0.2.0-beta.1` for a prerelease). The `Release` workflow builds, tests, packs and
+Move the `Unreleased` notes in [CHANGELOG.md](CHANGELOG.md) under the new version, then push a tag such as
+`v0.2.0` (or `v0.3.0-beta.1` for a prerelease). The `Release` workflow builds, tests, packs and
 publishes both packages to nuget.org under the InPoint.Cloud account using Trusted Publishing, then creates a
-GitHub release with the packages attached. The package version comes from the tag.
+GitHub release with the packages attached. The package version comes from the tag. After a release, set
+`PackageValidationBaselineVersion` in `src/OpenBarcode/OpenBarcode.csproj` to it: packing fails when the public API
+breaks compatibility with that version.
