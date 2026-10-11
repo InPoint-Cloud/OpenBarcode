@@ -132,13 +132,13 @@ public class PoorImageTests
         var rnd = new Random(seed);
         int w = 400 + rnd.Next(400), h = 400 + rnd.Next(400);
         var pixels = new byte[w * h];
-        for (int i = 0; i < pixels.Length; i++) pixels[i] = (byte)Math.Clamp(128 + (int)((rnd.NextDouble() - 0.5) * 2 * (40 + 20 * seed)), 0, 255);
-        for (int s = 0; s < 40; s++)
+        for (var i = 0; i < pixels.Length; i++) pixels[i] = (byte)Math.Clamp(128 + (int)((rnd.NextDouble() - 0.5) * 2 * (40 + 20 * seed)), 0, 255);
+        for (var s = 0; s < 40; s++)
         {
             int x0 = rnd.Next(w), y0 = rnd.Next(h), sw = rnd.Next(1, 10), sh = rnd.Next(1, 120);
-            byte v = (byte)rnd.Next(256);
-            for (int y = y0; y < Math.Min(h, y0 + sh); y++)
-                for (int x = x0; x < Math.Min(w, x0 + sw); x++) pixels[y * w + x] = v;
+            var v = (byte)rnd.Next(256);
+            for (var y = y0; y < Math.Min(h, y0 + sh); y++)
+                for (var x = x0; x < Math.Min(w, x0 + sw); x++) pixels[y * w + x] = v;
         }
 
         Assert.Empty(Reader.Read(new GrayImage(w, h, pixels)));

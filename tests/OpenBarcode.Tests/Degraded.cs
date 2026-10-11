@@ -37,7 +37,7 @@ internal sealed class Degraded
         image = GaussianBlur(image, Blur);
         ApplyToneAndNoise(image);
         var bytes = new byte[image.Length];
-        for (int i = 0; i < bytes.Length; i++) bytes[i] = (byte)Math.Clamp((int)Math.Round(image[i] * 255), 0, 255);
+        for (var i = 0; i < bytes.Length; i++) bytes[i] = (byte)Math.Clamp((int)Math.Round(image[i] * 255), 0, 255);
         return new GrayImage(_width, _height, bytes);
     }
 
@@ -51,16 +51,16 @@ internal sealed class Degraded
         var writer = new BarcodeWriterGeneric { Format = format, Options = options };
         var m = writer.Encode(text);
         const int quiet = 10;
-        bool linear = m.Height == 1;
-        int rows = linear ? 40 : m.Height;
+        var linear = m.Height == 1;
+        var rows = linear ? 40 : m.Height;
         int w = (m.Width + 2 * quiet) * Oversample, h = (rows + 2 * quiet) * Oversample;
         var px = new float[w * h];
         Array.Fill(px, 1f);
-        for (int y = 0; y < rows; y++)
-            for (int x = 0; x < m.Width; x++)
+        for (var y = 0; y < rows; y++)
+            for (var x = 0; x < m.Width; x++)
                 if (m[x, linear ? 0 : y])
-                    for (int yy = 0; yy < Oversample; yy++)
-                        for (int xx = 0; xx < Oversample; xx++)
+                    for (var yy = 0; yy < Oversample; yy++)
+                        for (var xx = 0; xx < Oversample; xx++)
                             px[((y + quiet) * Oversample + yy) * w + (x + quiet) * Oversample + xx] = 0f;
         return (px, w, h);
     }
@@ -71,37 +71,37 @@ internal sealed class Degraded
         const int quiet = 10 * Oversample;
         double side = (symbol.Width - 2 * quiet) * Logo, centre = symbol.Width / 2.0;
         int from = (int)(centre - side / 2), to = (int)(centre + side / 2);
-        for (int y = from; y < to; y++)
-            for (int x = from; x < to; x++)
+        for (var y = from; y < to; y++)
+            for (var x = from; x < to; x++)
             {
                 double u = (x - from) / side - 0.5, v = (y - from) / side - 0.5;
-                bool frame = Math.Abs(u) > 0.42 || Math.Abs(v) > 0.42;
-                bool cross = (Math.Abs(u) < 0.09 && Math.Abs(v) < 0.28) || (Math.Abs(v) < 0.09 && Math.Abs(u) < 0.28);
+                var frame = Math.Abs(u) > 0.42 || Math.Abs(v) > 0.42;
+                var cross = (Math.Abs(u) < 0.09 && Math.Abs(v) < 0.28) || (Math.Abs(v) < 0.09 && Math.Abs(u) < 0.28);
                 symbol.Pixels[y * symbol.Width + x] = frame || cross ? 1f : 0f;
             }
     }
 
     private float[] Project((float[] Pixels, int Width, int Height) src)
     {
-        double scale = PixelsPerModule / Oversample;
+        var scale = PixelsPerModule / Oversample;
         double ow = src.Width * scale, oh = src.Height * scale;
-        int size = (int)Math.Sqrt(ow * ow + oh * oh) + 80;
+        var size = (int)Math.Sqrt(ow * ow + oh * oh) + 80;
         _width = _height = size;
         var dst = new float[size * size];
         double a = Angle * Math.PI / 180, c = Math.Cos(a), s = Math.Sin(a);
-        double centre = size / 2.0;
+        var centre = size / 2.0;
         const int ss = 3;
-        for (int y = 0; y < size; y++)
-            for (int x = 0; x < size; x++)
+        for (var y = 0; y < size; y++)
+            for (var x = 0; x < size; x++)
             {
                 float acc = 0;
-                for (int j = 0; j < ss; j++)
-                    for (int i = 0; i < ss; i++)
+                for (var j = 0; j < ss; j++)
+                    for (var i = 0; i < ss; i++)
                     {
                         double px = x + (i + 0.5) / ss - centre, py = y + (j + 0.5) / ss - centre;
                         px /= 1 + Keystone * (py / centre);
-                        double ux = (c * px + s * py) / scale + src.Width / 2.0;
-                        double uy = (-s * px + c * py) / scale + src.Height / 2.0;
+                        var ux = (c * px + s * py) / scale + src.Width / 2.0;
+                        var uy = (-s * px + c * py) / scale + src.Height / 2.0;
                         acc += Sample(src, ux, uy);
                     }
                 dst[y * size + x] = acc / (ss * ss);
@@ -123,21 +123,21 @@ internal sealed class Degraded
         int r = (int)Math.Ceiling(sigma * 3), w = _width, h = _height;
         var k = new float[2 * r + 1];
         float sum = 0;
-        for (int i = -r; i <= r; i++) sum += k[i + r] = (float)Math.Exp(-i * i / (2 * sigma * sigma));
+        for (var i = -r; i <= r; i++) sum += k[i + r] = (float)Math.Exp(-i * i / (2 * sigma * sigma));
         var tmp = new float[src.Length];
         var dst = new float[src.Length];
-        for (int y = 0; y < h; y++)
-            for (int x = 0; x < w; x++)
+        for (var y = 0; y < h; y++)
+            for (var x = 0; x < w; x++)
             {
                 float acc = 0;
-                for (int i = -r; i <= r; i++) acc += k[i + r] * src[y * w + Math.Clamp(x + i, 0, w - 1)];
+                for (var i = -r; i <= r; i++) acc += k[i + r] * src[y * w + Math.Clamp(x + i, 0, w - 1)];
                 tmp[y * w + x] = acc / sum;
             }
-        for (int y = 0; y < h; y++)
-            for (int x = 0; x < w; x++)
+        for (var y = 0; y < h; y++)
+            for (var x = 0; x < w; x++)
             {
                 float acc = 0;
-                for (int i = -r; i <= r; i++) acc += k[i + r] * tmp[Math.Clamp(y + i, 0, h - 1) * w + x];
+                for (var i = -r; i <= r; i++) acc += k[i + r] * tmp[Math.Clamp(y + i, 0, h - 1) * w + x];
                 dst[y * w + x] = acc / sum;
             }
         return dst;
@@ -146,11 +146,11 @@ internal sealed class Degraded
     private void ApplyToneAndNoise(float[] px)
     {
         var rnd = new Random(Seed);
-        for (int y = 0; y < _height; y++)
-            for (int x = 0; x < _width; x++)
+        for (var y = 0; y < _height; y++)
+            for (var x = 0; x < _width; x++)
             {
-                int i = y * _width + x;
-                float v = Ink + (Paper - Ink) * px[i];
+                var i = y * _width + x;
+                var v = Ink + (Paper - Ink) * px[i];
                 // Light falls off from the top-left corner towards the bottom-right.
                 v *= (float)(1 - LightFalloff * (x + y) / (double)(_width + _height));
                 if (Noise > 0)
