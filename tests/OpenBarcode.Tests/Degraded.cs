@@ -1,6 +1,7 @@
 using InPoint.Cloud.OpenBarcode.Imaging;
 using ZXing;
 using ZXing.Common;
+using ZXing.QrCode.Internal;
 using ZxFormat = ZXing.BarcodeFormat;
 
 namespace InPoint.Cloud.OpenBarcode.Tests;
@@ -21,12 +22,17 @@ internal sealed class Degraded
     public double Noise { get; init; }
     public double Specks { get; init; }
     public int Seed { get; init; }
+    /// <summary>QR error correction level; ZXing's writer uses L when none is given.</summary>
+    public ErrorCorrectionLevel? QrLevel { get; init; }
+    /// <summary>Side of a logo printed over the middle of the symbol, as a share of the symbol's side.</summary>
+    public double Logo { get; init; }
 
     private const int Oversample = 8;
 
     public GrayImage Render(ZxFormat format, string text)
     {
-        var symbol = Symbol(format, text);
+        var symbol = Symbol(format, text, QrLevel);
+        if (Logo > 0) PaintLogo(symbol);
         var image = Project(symbol);
         image = GaussianBlur(image, Blur);
         ApplyToneAndNoise(image);
@@ -38,9 +44,11 @@ internal sealed class Degraded
     private int _width, _height;
 
     /// <summary>The symbol at 8 pixels per module with a 10-module quiet zone; 0 = ink, 1 = paper.</summary>
-    private static (float[] Pixels, int Width, int Height) Symbol(ZxFormat format, string text)
+    private static (float[] Pixels, int Width, int Height) Symbol(ZxFormat format, string text, ErrorCorrectionLevel? level)
     {
-        var writer = new BarcodeWriterGeneric { Format = format, Options = new EncodingOptions { Margin = 0, PureBarcode = true } };
+        var options = new EncodingOptions { Margin = 0, PureBarcode = true };
+        if (level != null) options.Hints[EncodeHintType.ERROR_CORRECTION] = level;
+        var writer = new BarcodeWriterGeneric { Format = format, Options = options };
         var m = writer.Encode(text);
         const int quiet = 10;
         bool linear = m.Height == 1;
@@ -55,6 +63,22 @@ internal sealed class Degraded
                         for (int xx = 0; xx < Oversample; xx++)
                             px[((y + quiet) * Oversample + yy) * w + (x + quiet) * Oversample + xx] = 0f;
         return (px, w, h);
+    }
+
+    /// <summary>A Swiss-cross style logo: a white frame around a dark square with a white cross, centred.</summary>
+    private void PaintLogo((float[] Pixels, int Width, int Height) symbol)
+    {
+        const int quiet = 10 * Oversample;
+        double side = (symbol.Width - 2 * quiet) * Logo, centre = symbol.Width / 2.0;
+        int from = (int)(centre - side / 2), to = (int)(centre + side / 2);
+        for (int y = from; y < to; y++)
+            for (int x = from; x < to; x++)
+            {
+                double u = (x - from) / side - 0.5, v = (y - from) / side - 0.5;
+                bool frame = Math.Abs(u) > 0.42 || Math.Abs(v) > 0.42;
+                bool cross = (Math.Abs(u) < 0.09 && Math.Abs(v) < 0.28) || (Math.Abs(v) < 0.09 && Math.Abs(u) < 0.28);
+                symbol.Pixels[y * symbol.Width + x] = frame || cross ? 1f : 0f;
+            }
     }
 
     private float[] Project((float[] Pixels, int Width, int Height) src)
