@@ -35,8 +35,8 @@ public class SampleTests
             .Where(r => (r.PageNumber ?? r.FrameIndex + 1) == index)
             .Select(r => $"{r.Format} {r.Text}")
             .OrderBy(s => s, StringComparer.Ordinal)];
-        Assert.Equal(Page1.OrderBy(s => s, StringComparer.Ordinal), Page(1));
-        Assert.Equal(Page2.OrderBy(s => s, StringComparer.Ordinal), Page(2));
+        Page(1).Should().Equal(Page1.OrderBy(s => s, StringComparer.Ordinal));
+        Page(2).Should().Equal(Page2.OrderBy(s => s, StringComparer.Ordinal));
     }
 
     [Fact]
@@ -44,7 +44,7 @@ public class SampleTests
     {
         var results = Reader.ReadFile(Path.Combine("samples", "scan-jpeg-p1.jpg")).Select(r => $"{r.Format} {r.Text}");
 
-        Assert.Equal(Page1.OrderBy(s => s, StringComparer.Ordinal), results.OrderBy(s => s, StringComparer.Ordinal));
+        results.OrderBy(s => s, StringComparer.Ordinal).Should().Equal(Page1.OrderBy(s => s, StringComparer.Ordinal));
     }
 
     [Fact]
@@ -54,7 +54,6 @@ public class SampleTests
         // on top of the tilt, so only the other three are expected.
         var results = Reader.ReadFile(Path.Combine("samples", "photo-like.jpg")).Select(r => $"{r.Format} {r.Text}");
 
-        Assert.Equal(PhotoCodes,
-            results.OrderBy(s => s, StringComparer.Ordinal));
+        results.OrderBy(s => s, StringComparer.Ordinal).Should().Equal(PhotoCodes);
     }
 }

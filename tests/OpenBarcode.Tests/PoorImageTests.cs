@@ -50,8 +50,8 @@ public class PoorImageTests
 
         var results = Reader.Read(Fixtures.Png(image));
 
-        var hit = Assert.Single(results);
-        Assert.Equal(text, hit.Text);
+        var hit = results.Should().ContainSingle().Subject;
+        hit.Text.Should().Be(text);
     }
 
     /// <summary>The payload of the Swiss QR-bill sample, which prints a cross over the middle at level M.</summary>
@@ -69,9 +69,9 @@ public class PoorImageTests
             QrLevel = ErrorCorrectionLevel.M, Logo = logo, PixelsPerModule = pixelsPerModule, Angle = angle, Blur = blur, Noise = noise, Seed = 1,
         }.Render(ZxFormat.QR_CODE, QrBill);
 
-        var hit = Assert.Single(Reader.Read(image));
+        var hit = Reader.Read(image).Should().ContainSingle().Subject;
 
-        Assert.Equal(QrBill, hit.Text);
+        hit.Text.Should().Be(QrBill);
     }
 
     [Fact]
@@ -83,7 +83,7 @@ public class PoorImageTests
             QrLevel = ErrorCorrectionLevel.M, Logo = 0.3, PixelsPerModule = 3, Angle = 4, Blur = 1.2, Noise = 12, Seed = 1,
         }.Render(ZxFormat.QR_CODE, QrBill);
 
-        Assert.DoesNotContain(Reader.Read(image), r => r.Format != BarcodeFormat.QrCode);
+        Reader.Read(image).Should().NotContain(r => r.Format != BarcodeFormat.QrCode);
     }
 
     [Fact]
@@ -91,14 +91,14 @@ public class PoorImageTests
     {
         var image = new Degraded { Angle = 30, Blur = 0.5 }.Render(ZxFormat.PDF_417, "PDF417 payload 1234567890");
 
-        var hit = Assert.Single(Reader.Read(image));
+        var hit = Reader.Read(image).Should().ContainSingle().Subject;
 
-        Assert.NotEmpty(hit.Points);
+        hit.Points.Should().NotBeEmpty();
         // The symbol sits in the middle of the canvas; points mapped wrongly would land far off or outside.
         foreach (var p in hit.Points)
         {
-            Assert.InRange(p.X, image.Width * 0.1, image.Width * 0.9);
-            Assert.InRange(p.Y, image.Height * 0.1, image.Height * 0.9);
+            p.X.Should().BeInRange(image.Width * 0.1f, image.Width * 0.9f);
+            p.Y.Should().BeInRange(image.Height * 0.1f, image.Height * 0.9f);
         }
     }
 
@@ -108,9 +108,9 @@ public class PoorImageTests
         // ZXing's MaxiCode reader threw IndexOutOfRangeException on this clean picture, failing the whole read.
         var image = new Degraded { PixelsPerModule = 3 }.Render(ZxFormat.CODE_128, "SHIP-00012345");
 
-        var hit = Assert.Single(Reader.Read(image));
+        var hit = Reader.Read(image).Should().ContainSingle().Subject;
 
-        Assert.Equal("SHIP-00012345", hit.Text);
+        hit.Text.Should().Be("SHIP-00012345");
     }
 
     [Fact]
@@ -119,7 +119,7 @@ public class PoorImageTests
         var image = Condition("faded").Render(ZxFormat.CODE_128, "SHIP-00012345");
         var reader = new BarcodeReader(new BarcodeReaderOptions { EnhancePoorImages = false });
 
-        Assert.Empty(reader.Read(image));
+        reader.Read(image).Should().BeEmpty();
     }
 
     [Theory]
@@ -141,6 +141,6 @@ public class PoorImageTests
                 for (var x = x0; x < Math.Min(w, x0 + sw); x++) pixels[y * w + x] = v;
         }
 
-        Assert.Empty(Reader.Read(new GrayImage(w, h, pixels)));
+        Reader.Read(new GrayImage(w, h, pixels)).Should().BeEmpty();
     }
 }
